@@ -1,10 +1,11 @@
 from django.contrib.auth import authenticate
-from flask import request
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
 from rest_framework import status
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import OrderingFilter
 
 @api_view(['POST'])
 def admin_login(request):
@@ -97,6 +98,11 @@ class LeaveViewSet(viewsets.ModelViewSet):
     serializer_class = LeaveSerializer
     queryset = Leave.objects.all()
     permission_classes = [permissions.IsAuthenticated]
+
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+
+    filterset_fields = ['status', 'leave_type', 'start_date']
+    ordering_fields = ['start_date', 'applied_at']
 
     def get_queryset(self):
         user = self.request.user
