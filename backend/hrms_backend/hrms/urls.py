@@ -1,25 +1,27 @@
 from django.urls import path
-from .views import admin_login, employee_login
+from .views import (
+    MyTokenObtainPairView,
+    EmployeeListCreateView,
+    EmployeeDetailView,
+    LeaveCreateView,
+    LeaveListView,
+    LeaveApproveRejectView
+)
+from .tests import SimpleTestView  # Add this line
 
 urlpatterns = [
-    path('admin-login/', admin_login),
-    path('employee-login/', employee_login),
+    # 🔐 CUSTOM JWT LOGIN
+    path('token/', MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    
+    # 👥 TEST VIEW (add this)
+    path('test/', SimpleTestView.as_view(), name='test'),
+    
+    # 👤 Employees
+    path('employees/', EmployeeListCreateView.as_view(), name='employee-list-create'),
+    path('employees/<int:pk>/', EmployeeDetailView.as_view(), name='employee-detail'),
+    
+    # 📝 Leaves
+    path('leaves/apply/', LeaveCreateView.as_view(), name='leave-apply'),
+    path('leaves/', LeaveListView.as_view(), name='leave-list'),
+    path('leaves/<int:pk>/approve/', LeaveApproveRejectView.as_view(), name='leave-approve-reject'),
 ]
-
-from .views import EmployeeListCreateView, EmployeeDetailView
-
-urlpatterns = [
-    path('admin-login/', admin_login),
-    path('employee-login/', employee_login),
-
-    path('employees/', EmployeeListCreateView.as_view()),
-    path('employees/<int:pk>/', EmployeeDetailView.as_view()),
-]
-
-from rest_framework.routers import DefaultRouter
-from .views import LeaveViewSet
-
-router = DefaultRouter()
-router.register(r'leaves', LeaveViewSet)
-
-urlpatterns = router.urls

@@ -2,6 +2,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.conf import settings
 
+
 class User(AbstractUser):
 
     ROLE_CHOICES = (
@@ -13,6 +14,7 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username} - {self.role}"
+
 
 class Employee(models.Model):
 
@@ -28,6 +30,7 @@ class Employee(models.Model):
     def __str__(self):
         return self.full_name
 
+
 class Leave(models.Model):
 
     LEAVE_TYPES = (
@@ -42,7 +45,9 @@ class Leave(models.Model):
         ('REJECTED', 'Rejected'),
     )
 
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE)
+    # 🔥 FIX HERE
+    employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
     leave_type = models.CharField(max_length=20, choices=LEAVE_TYPES)
 
     start_date = models.DateField()
