@@ -8,12 +8,6 @@ import EmployeeDashboard from "./pages/EmployeeDashboard";
 // Setup axios
 axios.defaults.baseURL = "http://localhost:8000/api";
 
-// Add token to requests if it exists
-const token = localStorage.getItem('access_token');
-if (token) {
-  axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-}
-
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -24,20 +18,23 @@ function App() {
     const role = localStorage.getItem('user_role');
     const username = localStorage.getItem('username');
     
-    console.log("🔍 App.jsx - Checking stored credentials:", { 
-      token: token ? "Present" : "Missing", 
+    console.log('🔍 App.jsx - Checking localStorage:', { 
+      token: token ? 'exists' : 'missing', 
       role, 
       username 
     });
     
     if (token && role && username) {
-      console.log("✅ User found in storage:", { username, role });
+      console.log('✅ User found in storage:', { username, role });
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setUser({ username, role });
     } else {
-      console.log("❌ No user found in storage");
+      console.log('❌ No user found in storage');
     }
     setLoading(false);
   }, []);
+
+  console.log('🔄 App.jsx - Current user state:', user);
 
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -45,18 +42,20 @@ function App() {
     </div>;
   }
 
-  console.log("🔄 App.jsx - Current user state:", user);
-
   return (
     <BrowserRouter>
       <Routes>
         <Route 
           path="/" 
           element={
-            user ? (
-              <Navigate to={`/${user.role.toLowerCase()}`} replace />
-            ) : (
+            !user ? (
               <Login setUser={setUser} />
+            ) : user.role === 'ADMIN' ? (
+              <Navigate to="/admin" replace />
+            ) : user.role === 'EMPLOYEE' ? (
+              <Navigate to="/employee" replace />
+            ) : (
+              <Navigate to="/" replace />
             )
           } 
         />
@@ -67,7 +66,7 @@ function App() {
             user?.role === 'ADMIN' ? (
               <AdminDashboard user={user} setUser={setUser} />
             ) : (
-              console.log("🚫 Not admin, redirecting to /") || <Navigate to="/" replace />
+              console.log('⛔ Not admin, redirecting to /') || <Navigate to="/" replace />
             )
           }
         />
@@ -78,7 +77,7 @@ function App() {
             user?.role === 'EMPLOYEE' ? (
               <EmployeeDashboard user={user} setUser={setUser} />
             ) : (
-              console.log("🚫 Not employee, redirecting to /") || <Navigate to="/" replace />
+              console.log('⛔ Not employee, redirecting to /') || <Navigate to="/" replace />
             )
           }
         />

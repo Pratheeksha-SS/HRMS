@@ -1,198 +1,360 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-// Import your layout components
-import Navbar from '../layout/navbar';
-import Sidebar from '../layout/sidebar';
-import StatCard from '../components/StatCard';
+import { useState } from 'react';
 
-const AdminDashboard = ({ user, setUser }) => {
-  const [stats, setStats] = useState({
-    totalEmployees: 2,
-    departments: 2,
-    successRate: 97.3,
-    p95Latency: 234,
-    payrollForecast: 3890
-  });
-
-  const [newEmployees, setNewEmployees] = useState([
-    { name: 'Sumit', role: 'IT', status: 'Live' },
-    { name: 'Rani', role: 'IT', status: 'Live' }
-  ]);
-
-  useEffect(() => {
-    console.log("Admin Dashboard mounted - User:", user);
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
-    try {
-      // Fetch real data from your backend
-      const employeesRes = await axios.get('/employees/');
-      const leavesRes = await axios.get('/leaves/');
-      
-      console.log("Fetched employees:", employeesRes.data);
-      console.log("Fetched leaves:", leavesRes.data);
-      
-      // Update stats with real data
-      setStats(prev => ({
-        ...prev,
-        totalEmployees: employeesRes.data.length || 2,
-        // Add more stats as needed
-      }));
-    } catch (error) {
-      console.error("Error fetching dashboard data:", error);
-    }
-  };
-
-  const logout = () => {
-    localStorage.clear();
-    delete axios.defaults.headers.common['Authorization'];
-    setUser(null);
-  };
-
+const AdminDashboard = ({ user }) => {
   return (
-    <div style={{ display: 'flex', height: '100vh' }}>
+    <div style={{ 
+      display: 'flex', 
+      minHeight: '100vh',
+      backgroundColor: '#f5f7fa',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
       {/* Sidebar */}
-      <Sidebar />
-      
-      {/* Main Content */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Navbar */}
-        <Navbar user={user} onLogout={logout} />
-        
-        {/* Dashboard Content */}
-        <div style={{ padding: '24px', backgroundColor: '#f5f7fa', flex: 1 }}>
-          {/* Welcome Header */}
-          <div style={{ marginBottom: '24px' }}>
-            <h1 style={{ fontSize: '28px', marginBottom: '8px' }}>
-              Hello, {user?.username || 'Admin'}
-            </h1>
-            <p style={{ color: '#666' }}>
-              Welcome Back, {user?.username || 'Admin'}
-            </p>
-          </div>
-
-          {/* New Employee Button */}
-          <div style={{ marginBottom: '24px' }}>
-            <button style={{
-              backgroundColor: '#4361ee',
-              color: 'white',
-              border: 'none',
-              padding: '10px 20px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '500'
-            }}>
-              + New Employee
-            </button>
-          </div>
-
-          {/* Stats Cards Row */}
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(4, 1fr)', 
-            gap: '20px',
-            marginBottom: '24px'
+      <div style={{
+        width: '260px',
+        backgroundColor: 'white',
+        borderRight: '1px solid #e5e7eb',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        {/* Logo */}
+        <div style={{ padding: '24px 20px' }}>
+          <h1 style={{ 
+            fontSize: '28px', 
+            fontWeight: '700',
+            color: '#4361ee',
+            margin: 0
           }}>
-            <StatCard 
-              title="Total Employees" 
-              value={stats.totalEmployees} 
-              change="+18%" 
-              icon="👥"
-            />
-            <StatCard 
-              title="Departments" 
-              value={stats.departments} 
-              change="+5%" 
-              icon="🏢"
-            />
-            <StatCard 
-              title="Success Rate" 
-              value={`${stats.successRate}%`} 
-              change="+2.4%" 
-              icon="✅"
-            />
-            <StatCard 
-              title="P95 Latency" 
-              value={`${stats.p95Latency}ms`} 
-              change="+12%" 
-              icon="⏱️"
-            />
-          </div>
-
-          {/* Second Row - Payroll Forecast */}
-          <div style={{ 
-            backgroundColor: 'white', 
-            padding: '24px', 
-            borderRadius: '12px',
-            marginBottom: '24px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            HRMS
+          </h1>
+          <p style={{ 
+            fontSize: '12px', 
+            color: '#666',
+            margin: '4px 0 0 0'
           }}>
-            <h3 style={{ marginBottom: '16px' }}>30-Day Payroll Forecast</h3>
-            <div style={{ display: 'flex', alignItems: 'baseline' }}>
-              <span style={{ fontSize: '32px', fontWeight: 'bold' }}>
-                ${stats.payrollForecast}
-              </span>
-              <span style={{ color: '#10b981', marginLeft: '12px' }}>
-                +12% Projected Spend
-              </span>
-            </div>
-          </div>
+            HRMS PROJECT
+          </p>
+        </div>
 
-          {/* Live New Employees Table */}
-          <div style={{ 
-            backgroundColor: 'white', 
-            padding: '24px', 
-            borderRadius: '12px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-          }}>
-            <h3 style={{ marginBottom: '16px' }}>Live New Employees</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ textAlign: 'left', padding: '12px 0' }}>NAME</th>
-                  <th style={{ textAlign: 'left', padding: '12px 0' }}>ROLE</th>
-                  <th style={{ textAlign: 'left', padding: '12px 0' }}>STATUS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {newEmployees.map((emp, index) => (
-                  <tr key={index} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                    <td style={{ padding: '12px 0' }}>{emp.name}</td>
-                    <td style={{ padding: '12px 0' }}>{emp.role}</td>
-                    <td style={{ padding: '12px 0' }}>
-                      <span style={{ 
-                        backgroundColor: '#d1fae5', 
-                        color: '#065f46',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '14px'
-                      }}>
-                        {emp.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Subscribe Section */}
-          <div style={{ 
-            marginTop: '24px',
+        {/* Admin Profile */}
+        <div style={{ padding: '0 20px 20px 20px' }}>
+          <div style={{
             display: 'flex',
-            justifyContent: 'space-between',
             alignItems: 'center',
-            padding: '16px',
-            backgroundColor: '#f9fafb',
-            borderRadius: '8px'
+            gap: '12px'
           }}>
-            <span>+ Subscribe</span>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              backgroundColor: '#4361ee',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontWeight: '600',
+              fontSize: '18px'
+            }}>
+              A
+            </div>
             <div>
-              <span style={{ marginRight: '16px' }}>Unused</span>
-              <span>Used</span>
+              <div style={{ fontWeight: '600', fontSize: '14px' }}>Admin</div>
+              <div style={{ fontSize: '12px', color: '#666' }}>Administrator</div>
+            </div>
+            <div style={{ marginLeft: 'auto', color: '#4361ee', fontSize: '18px' }}>O</div>
+          </div>
+        </div>
+
+        {/* Navigation Menu */}
+        <div style={{ flex: 1, padding: '20px 0' }}>
+          {['Dashboard', 'Employees', 'Attendance', 'Leave Management', 'Departments', 'Recruitment'].map((item, index) => (
+            <div
+              key={item}
+              style={{
+                padding: '12px 20px',
+                margin: '4px 8px',
+                borderRadius: '8px',
+                backgroundColor: item === 'Dashboard' ? '#eef2ff' : 'transparent',
+                color: item === 'Dashboard' ? '#4361ee' : '#666',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: item === 'Dashboard' ? '500' : '400'
+              }}
+            >
+              {item}
+            </div>
+          ))}
+          
+          {/* Logout Button */}
+          <div
+            onClick={() => {
+              localStorage.removeItem('access_token');
+              localStorage.removeItem('refresh_token');
+              localStorage.removeItem('user_role');
+              localStorage.removeItem('username');
+              window.location.href = '/';
+            }}
+            style={{
+              padding: '12px 20px',
+              margin: '20px 8px 4px 8px',
+              borderRadius: '8px',
+              backgroundColor: 'transparent',
+              color: '#ef4444',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Logout
+          </div>
+        </div>
+
+        {/* Getting Started */}
+        <div style={{ padding: '20px' }}>
+          <div style={{
+            backgroundColor: '#f8fafc',
+            padding: '16px',
+            borderRadius: '12px'
+          }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>
+              Getting Started
+            </div>
+            <div style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>
+              30% Complete
+            </div>
+            <div style={{
+              width: '100%',
+              height: '6px',
+              backgroundColor: '#e5e7eb',
+              borderRadius: '3px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                width: '30%',
+                height: '100%',
+                backgroundColor: '#4361ee',
+                borderRadius: '3px'
+              }} />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div style={{ flex: 1, padding: '24px' }}>
+        {/* Header */}
+        <div style={{ marginBottom: '24px' }}>
+          <h1 style={{ 
+            fontSize: '24px', 
+            fontWeight: '600',
+            margin: '0 0 8px 0',
+            color: '#1a1a1a'
+          }}>
+            Hello, Admin
+          </h1>
+          <p style={{ 
+            fontSize: '14px', 
+            color: '#666',
+            margin: 0
+          }}>
+            Welcome Back, Admin
+          </p>
+        </div>
+
+        {/* New Employee Button */}
+        <button style={{
+          backgroundColor: '#4361ee',
+          color: 'white',
+          border: 'none',
+          padding: '10px 20px',
+          borderRadius: '8px',
+          fontSize: '14px',
+          fontWeight: '500',
+          cursor: 'pointer',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <span style={{ fontSize: '18px' }}>+</span> New Employee
+        </button>
+
+        {/* Stats Cards */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(4, 1fr)', 
+          gap: '20px',
+          marginBottom: '24px'
+        }}>
+          {/* Total Employees */}
+          <div style={{
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+          }}>
+            <div style={{ color: '#666', fontSize: '14px', marginBottom: '8px' }}>Total Employees</div>
+            <div style={{ fontSize: '28px', fontWeight: '700' }}>2</div>
+            <div style={{ color: '#10b981', fontSize: '14px', marginTop: '4px' }}>~18%</div>
+          </div>
+
+          {/* Departments */}
+          <div style={{
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+          }}>
+            <div style={{ color: '#666', fontSize: '14px', marginBottom: '8px' }}>Departments</div>
+            <div style={{ fontSize: '28px', fontWeight: '700' }}>2</div>
+            <div style={{ color: '#10b981', fontSize: '14px', marginTop: '4px' }}>~5%</div>
+          </div>
+
+          {/* Success Rate */}
+          <div style={{
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+          }}>
+            <div style={{ color: '#666', fontSize: '14px', marginBottom: '8px' }}>Success Rate</div>
+            <div style={{ fontSize: '28px', fontWeight: '700' }}>97.3%</div>
+            <div style={{ color: '#10b981', fontSize: '14px', marginTop: '4px' }}>2.4%</div>
+          </div>
+
+          {/* P95 Latency */}
+          <div style={{
+            backgroundColor: 'white',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+          }}>
+            <div style={{ color: '#666', fontSize: '14px', marginBottom: '8px' }}>P95 Latency</div>
+            <div style={{ fontSize: '28px', fontWeight: '700' }}>234ms</div>
+            <div style={{ color: '#ef4444', fontSize: '14px', marginTop: '4px' }}>12%</div>
+          </div>
+        </div>
+
+        {/* HRMS Control Room */}
+        <div style={{
+          backgroundColor: 'white',
+          borderRadius: '12px',
+          padding: '24px',
+          marginBottom: '24px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+        }}>
+          <h2 style={{ 
+            fontSize: '18px', 
+            fontWeight: '600',
+            margin: '0 0 20px 0',
+            color: '#1a1a1a'
+          }}>
+            HRMS Control Room
+          </h2>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px' }}>
+            {/* Left Column */}
+            <div>
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#666' }}>Dept</span>
+                  <span style={{ color: '#4361ee', fontWeight: '600' }}>8</span>
+                </div>
+                <div style={{ 
+                  width: '100%', 
+                  height: '8px', 
+                  backgroundColor: '#e5e7eb', 
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ 
+                    width: '70%', 
+                    height: '100%', 
+                    backgroundColor: '#4361ee',
+                    borderRadius: '4px'
+                  }} />
+                </div>
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#666' }}>New Employee</span>
+                  <span style={{ color: '#10b981', fontWeight: '600' }}>8</span>
+                </div>
+                <div style={{ 
+                  width: '100%', 
+                  height: '8px', 
+                  backgroundColor: '#e5e7eb', 
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ 
+                    width: '85%', 
+                    height: '100%', 
+                    backgroundColor: '#10b981',
+                    borderRadius: '4px'
+                  }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column */}
+            <div>
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#666' }}>Attendance Pulse</span>
+                  <span style={{ color: '#f59e0b', fontWeight: '600' }}>94%</span>
+                </div>
+                <div style={{ 
+                  width: '100%', 
+                  height: '8px', 
+                  backgroundColor: '#e5e7eb', 
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ 
+                    width: '94%', 
+                    height: '100%', 
+                    backgroundColor: '#f59e0b',
+                    borderRadius: '4px'
+                  }} />
+                </div>
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ color: '#666' }}>Database Connection Active</span>
+                  <span style={{ color: '#10b981', fontWeight: '600' }}>✓</span>
+                </div>
+                <div style={{ 
+                  width: '100%', 
+                  height: '8px', 
+                  backgroundColor: '#e5e7eb', 
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ 
+                    width: '100%', 
+                    height: '100%', 
+                    backgroundColor: '#10b981',
+                    borderRadius: '4px'
+                  }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Stats */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '16px 24px',
+          backgroundColor: 'white',
+          borderRadius: '12px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+        }}>
+          <span style={{ color: '#666' }}>2 Departments Configured</span>
+          <span style={{ color: '#666' }}>Review Pending Leave Requests</span>
         </div>
       </div>
     </div>
