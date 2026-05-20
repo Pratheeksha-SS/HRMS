@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { extractListData } from '../utils/extractListData';
+import api from '../utils/axiosConfig';
 import { formatDate, getStatusColor } from '../utils/reportUtils';
 import { leaveTypeLabels } from './AdminLeaveManagement';
 
@@ -39,21 +38,15 @@ const LeaveDetails = () => {
   const [loading, setLoading] = useState(true);
   const [reviewComments, setReviewComments] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
-const [employees, setEmployees] = useState([]);
+  const [employees, setEmployees] = useState([]);
 
-  const token = () => localStorage.getItem('access_token');
+  const currentRole = localStorage.getItem('user_role') || localStorage.getItem('role');
 
   const fetchLeave = useCallback(async () => {
     try {
-      const res = await axios.get('http://localhost:8000/api/leaves/', {
-        headers: { Authorization: `Bearer ${token()}` }
-      });
-      const leaveList = extractListData(res.data);
-      const leaveData = leaveList.find(l => l.id == id);
-      if (leaveData) {
-        setLeave(leaveData);
-        setReviewComments(leaveData.comments || '');
-      }
+      const res = await api.get(`/leaves/${id}/`);
+      setLeave(res.data);
+      setReviewComments(res.data.comments || '');
     } catch (err) {
       console.error('Error fetching leave:', err);
     } finally {
@@ -61,33 +54,32 @@ const [employees, setEmployees] = useState([]);
     }
   }, [id]);
 
-
   const fetchEmployeeDetails = useCallback(async (employeeId) => {
+    if (!employeeId) return;
     try {
-      const res = await axios.get(`/employees/${employeeId}/`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setEmployees([extractListData(res.data)[0]]);
+      const res = await api.get(`/employees/${employeeId}/`);
+      setEmployees([res.data]);
     } catch (err) {
       console.error('Error fetching employee:', err);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     fetchLeave();
+  }, [fetchLeave]);
+
+  useEffect(() => {
     if (leave?.employee) {
       fetchEmployeeDetails(leave.employee);
     }
-  }, [fetchLeave, fetchEmployeeDetails, leave?.employee]);
+  }, [leave?.employee, fetchEmployeeDetails]);
 
   const handleApprove = async () => {
     setActionLoading(true);
     try {
-      await axios.patch(`/leaves/${id}/approve/`, {
+      await api.patch(`/leaves/${id}/approve/`, {
         status: 'APPROVED',
-        comments: reviewComments
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
+        comments: reviewComments,
       });
       alert('Leave approved successfully');
       navigate(-1);
@@ -101,11 +93,9 @@ const [employees, setEmployees] = useState([]);
   const handleReject = async () => {
     setActionLoading(true);
     try {
-      await axios.patch(`/leaves/${id}/approve/`, {
+      await api.patch(`/leaves/${id}/approve/`, {
         status: 'REJECTED',
-        comments: reviewComments
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
+        comments: reviewComments,
       });
       alert('Leave rejected');
       navigate(-1);
@@ -120,16 +110,17 @@ const [employees, setEmployees] = useState([]);
     return <div style={styles.page}>Loading leave details...</div>;
   }
 
-  if (!leave) {
+  if (!loading && !leave) {
     return <div style={styles.page}>Leave not found</div>;
   }
 
   const employee = employees[0];
+  const canDelete = currentRole === 'ADMIN' || leave?.status === 'PENDING';
 
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <h1 style={styles.title}>Leave Request #{leave.id}</h1>
+        <h1 style={styles.title}>Leave Request #{leave?.id}</h1>
         <button onClick={() => navigate(-1)} style={styles.backButton}>
           ← Back to Leaves
         </button>
@@ -140,7 +131,7 @@ const [employees, setEmployees] = useState([]);
         <div style={styles.metaGrid}>
           <div>
             <div style={styles.metaLabel}>Employee Name</div>
-            <div style={styles.metaValue}>{leave.employee_name || employee?.full_name || 'N/A'}</div>
+            <div style={styles.metaValue}>{leave.employee_name || `${employee?.first_name || ''} ${employee?.last_name || ''}`.trim() || 'N/A'}</div>
           </div>
           <div>
             <div style={styles.metaLabel}>Employee ID</div>
@@ -203,12 +194,15 @@ const [employees, setEmployees] = useState([]);
       </div>
 
       <div style={styles.buttonGroup}>
-        {leave.status !== 'PENDING' && (
-          <button 
+        {canDelete && (
+          <button
             onClick={async () => {
-              if (confirm('Delete this leave request?')) {
-                await axios.delete(`/leaves/${id}/delete/`, { headers: { Authorization: `Bearer ${token}` } });
+              if (!confirm('Delete this leave request?')) return;
+              try {
+                await api.delete(`/leaves/${id}/delete/`);
                 navigate(-1);
+              } catch (err) {
+                alert('Error deleting leave: ' + (err.response?.data?.error || err.message));
               }
             }}
             style={styles.dangerButton}
@@ -217,7 +211,7 @@ const [employees, setEmployees] = useState([]);
             Delete Leave
           </button>
         )}
-        {leave.status === 'PENDING' && (
+        {leave?.status === 'PENDING' && (
           <>
             <button onClick={handleReject} disabled={actionLoading} style={styles.dangerButton}>
               {actionLoading ? 'Processing...' : 'Reject'}

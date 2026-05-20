@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { extractListData } from '../../utils/extractListData';
 
@@ -30,8 +30,8 @@ const VisitorManagement = ({ user, isEmployeeView = false }) => {
     try {
       const token = localStorage.getItem('access_token');
       const url = filterType !== 'all' 
-        ? `http://localhost:8000/api/visitors/?visitor_type=${filterType}`
-        : 'http://localhost:8000/api/visitors/';
+        ? `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/?visitor_type=${filterType}`
+        : `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/`;
       const response = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -75,7 +75,7 @@ const VisitorManagement = ({ user, isEmployeeView = false }) => {
         formDataToSend.append('photo', selectedImage);
       }
       
-      const response = await axios.post('http://localhost:8000/api/visitors/', formDataToSend, {
+      const response = await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/`, formDataToSend, {
         headers: { 
           Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
@@ -112,7 +112,6 @@ const VisitorManagement = ({ user, isEmployeeView = false }) => {
   const getVisitorTypeColor = (type) => {
     const colors = {
       'GUEST': '#10b981',
-      'VENDOR': '#f59e0b',
       'INTERN': '#4361ee',
       'CANDIDATE': '#8b5cf6'
     };
@@ -122,7 +121,6 @@ const VisitorManagement = ({ user, isEmployeeView = false }) => {
   const getVisitorTypeIcon = (type) => {
     const icons = {
       'GUEST': '👤',
-      'VENDOR': '🏢',
       'INTERN': '🎓',
       'CANDIDATE': '💼'
     };
@@ -135,7 +133,7 @@ const VisitorManagement = ({ user, isEmployeeView = false }) => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
           <h1 style={{ fontSize: '28px', fontWeight: '700', margin: 0, color: '#1a1a1a' }}>Visitor Management</h1>
-          <p style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>Manage guests, vendors, interns, and interview candidates</p>
+          <p style={{ fontSize: '14px', color: '#666', marginTop: '4px' }}>Manage guests, interns, and interview candidates</p>
         </div>
         {!isEmployeeView && (
           <button
@@ -164,7 +162,6 @@ const VisitorManagement = ({ user, isEmployeeView = false }) => {
         {[
           { id: 'all', label: 'All Visitors', icon: '👥' },
           { id: 'GUEST', label: 'Guests', icon: '👤' },
-          { id: 'VENDOR', label: 'Vendors', icon: '🏢' },
           { id: 'INTERN', label: 'Interns', icon: '🎓' },
           { id: 'CANDIDATE', label: 'Candidates', icon: '💼' },
         ].map(filter => (
@@ -323,9 +320,7 @@ const VisitorManagement = ({ user, isEmployeeView = false }) => {
                   required
                   style={{ width: '100%', padding: '12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}
                 >
-                  <option value="GUEST">Guest</option>
-                  <option value="VENDOR">Vendor</option>
-                  <option value="INTERN">Intern</option>
+                  <option value="GUEST">Guest</option>                  <option value="INTERN">Intern</option>
                   <option value="CANDIDATE">Interview Candidate</option>
                 </select>
               </div>
@@ -404,7 +399,7 @@ const VisitorManagement = ({ user, isEmployeeView = false }) => {
                   value={formData.organization}
                   onChange={handleInputChange}
                   style={{ width: '100%', padding: '12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}
-                  placeholder="Company/Organization name (for vendors/interns)"
+                  placeholder="Company/Organization name (for interns)"
                 />
               </div>
               

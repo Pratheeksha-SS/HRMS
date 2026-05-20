@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { extractListData } from '../utils/extractListData';
@@ -17,6 +17,7 @@ import EditAnnouncement from './EditAnnouncement';
 import HRReports from './admin/HRReports';
 import ManagersList from './admin/ManagersList';
 import AdminVisitor from './admin/AdminVisitor';
+import AdminAttendance from './admin/AdminAttendance';
 
 /* ─── Design Tokens (matching AdminLeaveManagement.jsx) ─────────────
    Primary     : #F97316  (orange-500)
@@ -73,10 +74,10 @@ const AdminDashboard = ({ user, setUser, activePage }) => {
     return announcementIndex >= 0 ? pathParts[announcementIndex + 1] : null;
   };
 
-  const fetchAdminProfile = async () => {
+const fetchAdminProfile = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/employees/me/', {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/employees/me/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.data.profile_image) {
@@ -85,6 +86,24 @@ const AdminDashboard = ({ user, setUser, activePage }) => {
     } catch (error) {
       console.error('Error fetching admin profile:', error);
     }
+  };
+
+const fetchAllEmployees = async (token, signal) => {
+    const allEmployees = [];
+    let nextUrl = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/employees/?limit=100`;
+
+
+    while (nextUrl) {
+      const response = await axios.get(nextUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
+      });
+
+      allEmployees.push(...extractListData(response.data));
+      nextUrl = response.data?.next || null;
+    }
+
+    return allEmployees;
   };
 
   useEffect(() => {
@@ -117,10 +136,8 @@ const AdminDashboard = ({ user, setUser, activePage }) => {
     setLoadingEmployees(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/employees/', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setEmployees(extractListData(response.data));
+      const employeesData = await fetchAllEmployees(token);
+      setEmployees(employeesData);
       fetchStats();
     } catch (error) {
       console.error("Error fetching employees:", error);
@@ -133,14 +150,11 @@ const AdminDashboard = ({ user, setUser, activePage }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const employeesRes = await axios.get('http://localhost:8000/api/employees/', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const employeesData = extractListData(employeesRes.data);
+      const employeesData = await fetchAllEmployees(token);
 
       let deptCount = 0;
       try {
-        const deptsRes = await axios.get('http://localhost:8000/api/departments/', {
+const deptsRes = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/departments/`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         deptCount = deptsRes.data.length;
@@ -168,20 +182,16 @@ const AdminDashboard = ({ user, setUser, activePage }) => {
     if (cancelRef.current) cancelRef.current.abort();
     cancelRef.current = new AbortController();
     setLoading(true);
+
     try {
       const token = localStorage.getItem('access_token');
-      const res = await axios.get('http://localhost:8000/api/employees/', {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: cancelRef.current.signal,
-      });
-      const empList = extractListData(res.data);
-      if (!Array.isArray(empList)) {
-        setStats({ totalEmployees: 0, departments: 0, successRate: 97.3, p95Latency: 234 });
-        return;
-      }
-      const uniqueDepts = new Set(empList.map(e => e.department).filter(Boolean));
+
+      const allEmployees = await fetchAllEmployees(token, cancelRef.current.signal);
+
+      const uniqueDepts = new Set(allEmployees.map(e => e.department).filter(Boolean));
+
       setStats({
-        totalEmployees: empList.length,
+        totalEmployees: allEmployees.length,
         departments: uniqueDepts.size,
         successRate: 97.3,
         p95Latency: 234,
@@ -205,7 +215,7 @@ const AdminDashboard = ({ user, setUser, activePage }) => {
     if (window.confirm("Are you sure you want to delete this employee?")) {
       try {
         const token = localStorage.getItem("access_token");
-        await axios.delete(`http://localhost:8000/api/employees/${employeeId}/`, {
+        await axios.delete(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/employees/${employeeId}/`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setNotification({ message: "Employee deleted successfully!", type: "success" });
@@ -269,6 +279,7 @@ const AdminDashboard = ({ user, setUser, activePage }) => {
       case 'department-details':  return <DepartmentDetails />;
       case 'leave-management':    return <AdminLeaveManagement />;
       case 'employees':           return <Employees />;
+      case 'attendance':           return <AdminAttendance />;
       case 'holidays':            return (
         <div style={{ padding: '24px', height: '100%' }}>
           <HolidayCalendar />

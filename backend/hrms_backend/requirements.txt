@@ -1,0 +1,22 @@
+# Django and REST Framework
+Django==5.2.11
+djangorestframework==3.16.0
+djangorestframework-simplejwt==5.4.0
+
+django-filter==25.1
+django-cors-headers==4.7.0
+
+# Async / tasks
+celery==5.6.3
+
+# Files
+Pillow==12.2.0
+openpyxl==3.1.5
+
+# Database
+psycopg2-binary==2.9.10
+
+# Excel (already pulled in by openpyxl)
+et-xmlfile==2.0.0
+
+

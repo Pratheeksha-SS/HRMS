@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from django.conf import settings
-from .views_chatbot import ChatbotView
+from . import views_attendance
 from django.conf.urls.static import static
 from .views import (
     reports_leaves,
@@ -122,7 +122,6 @@ urlpatterns = [
     path('employees/me/update/', EmployeeProfileUpdateView.as_view(), name='employee-profile-update'),
     path('employees/me/set-password/', EmployeeSetPasswordView.as_view(), name='employee-set-password'),
     path('employees/<int:pk>/', EmployeeDetailView.as_view(), name='employee-detail'),
-    path("chatbot/", ChatbotView.as_view(), name="chatbot"),   
     
     # ➕ Add Employee
     path('add-employee/', AddEmployeeView.as_view(), name='add-employee'),
@@ -204,6 +203,19 @@ urlpatterns = [
     # 📧 Email Test
     path('test-email/', test_email_direct, name='test-email'),
     path('send-holiday-wishes/', send_holiday_wishes, name='send-holiday-wishes'),
+
+    # 📅 Attendance Management
+    path('attendance/upload/', views_attendance.AttendanceUploadView.as_view(), name='attendance-upload'),
+    path('attendance/upload/<int:pk>/', views_attendance.AttendanceUploadDeleteView.as_view(), name='attendance-upload-delete'),
+    path('attendance/', views_attendance.AttendanceListView.as_view(), name='attendance-list'),
+    path('attendance/summary/', views_attendance.AttendanceSummaryView.as_view(), name='attendance-summary'),
+    path('attendance/my/', views_attendance.MyAttendanceView.as_view(), name='my-attendance'),
+    path('attendance/date-view/', views_attendance.AttendanceDateView.as_view(), name='attendance-date-view'),
+    path('attendance/record/<int:pk>/', views_attendance.AttendanceRecordDetailView.as_view(), name='attendance-record-detail'),
+    path('attendance/dashboard-stats/', views_attendance.AttendanceDashboardStatsView.as_view(), name='attendance-dashboard-stats'),
+    path('attendance/incomplete-employees/', views_attendance.IncompleteEmployeesView.as_view(), name='attendance-incomplete-employees'),
+    path('attendance/sync/', views_attendance.AttendanceSyncView.as_view(), name='attendance-sync'),
+    path('attendance/date/', views_attendance.AttendanceDateView.as_view(), name='attendance-date'),
 ]
 
 # ✅ ADD ROUTER URLS HERE - This is the fix!

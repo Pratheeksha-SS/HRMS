@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { extractListData } from '../../utils/extractListData';
 
@@ -33,7 +33,7 @@ const VisitorReports = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get(`http://localhost:8000/api/reports/daily-logs/?date=${selectedDate}`, {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/reports/daily-logs/?date=${selectedDate}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDailyLogs(response.data.visits || []);
@@ -48,7 +48,7 @@ const VisitorReports = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get(`http://localhost:8000/api/reports/history/?start_date=${dateRange.start_date}&end_date=${dateRange.end_date}`, {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/reports/history/?start_date=${dateRange.start_date}&end_date=${dateRange.end_date}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setVisitorHistory(response.data.visits || []);
@@ -63,7 +63,7 @@ const VisitorReports = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/reports/department-stats/', {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/reports/department-stats/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDepartmentStats(extractListData(response.data));
@@ -79,7 +79,7 @@ const VisitorReports = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/reports/active-visitors/', {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/reports/active-visitors/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setActiveVisitors(response.data.active_visitors || []);
@@ -93,7 +93,7 @@ const VisitorReports = ({ user }) => {
   const fetchSummary = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/reports/summary/', {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/reports/summary/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSummary(response.data);

@@ -80,48 +80,77 @@ const ManagerManagement = () => {
     setError(null);
     setLoading(true);
     try {
-      const [employeesRes, departmentsRes, departmentOptionsRes, managersRes] = await Promise.all([
-        api.get('/employees/'),
+      // Fetch all employees across all pages
+      const fetchAllEmployees = async () => {
+        const all = [];
+        let url = '/employees/?limit=100';
+        while (url) {
+          const res = await api.get(url);
+          const page = res.data;
+          const items = Array.isArray(page) ? page : (page?.results || []);
+          all.push(...items);
+          // Follow the next page URL — strip the base so api instance handles it
+          if (page?.next) {
+            try {
+              const nextUrl = new URL(page.next);
+              url = nextUrl.pathname.replace('/api', '') + nextUrl.search;
+            } catch {
+              url = null;
+            }
+          } else {
+            url = null;
+          }
+        }
+        return all;
+      };
+
+      const [rawEmployees, departmentsRes, departmentOptionsRes, managersRes] = await Promise.all([
+        fetchAllEmployees(),
         api.get('/departments/'),
         api.get('/departments-list/'),
-        api.get('/managers/')
+        api.get('/managers/'),
       ]);
 
-      const employeesData = extractListData(employeesRes.data).map(emp => ({
-        id: emp.id,
-        employee_id: emp.employee_id,
-        name: emp.full_name || `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || emp.username,
-        email: emp.email || emp.user_email,
-        department: emp.department,
-        phone: emp.phone,
-        user_id: emp.user,
-        first_name: emp.first_name,
-        last_name: emp.last_name,
-        designation: emp.designation,
-        role: emp.user_role || emp.role,
-        profile_image: emp.profile_image || emp.profile_image_url,
-        middle_name: emp.middle_name,
-        gender: emp.gender,
-        marital_status: emp.marital_status,
-        education: emp.education,
-        address: emp.address,
-        joining_date: emp.joining_date,
-        emergency_contact_name: emp.emergency_contact_name,
-        emergency_contact_relationship: emp.emergency_contact_relationship,
-        emergency_contact_phone: emp.emergency_contact_phone,
-        emergency_contact_occupation: emp.emergency_contact_occupation,
-        education_level: emp.education_level,
-        institute_name: emp.institute_name,
-        year_of_passing: emp.year_of_passing,
-        marks_type: emp.marks_type,
-        marks_value: emp.marks_value,
-        account_holder_name: emp.account_holder_name,
-        account_number: emp.account_number,
-        bank_name: emp.bank_name,
-        ifsc_code: emp.ifsc_code,
-        branch_name: emp.branch_name,
-        account_type: emp.account_type
-      }));
+      const employeesData = rawEmployees.map(emp => {
+        const fullName = emp.full_name ||
+          [emp.first_name, emp.middle_name, emp.last_name].filter(Boolean).join(' ').trim() ||
+          emp.username || '';
+        return {
+          id: emp.id,
+          employee_id: emp.employee_id || '',
+          name: fullName,
+          email: emp.email || emp.user_email || '',
+          department: emp.department || '',
+          phone: emp.phone || '',
+          user_id: emp.user,
+          first_name: emp.first_name || '',
+          last_name: emp.last_name || '',
+          middle_name: emp.middle_name || '',
+          designation: emp.designation || '',
+          role: emp.user_role || emp.role || '',
+          profile_image: emp.profile_image || emp.profile_image_url || null,
+          gender: emp.gender,
+          marital_status: emp.marital_status,
+          education: emp.education,
+          address: emp.address,
+          joining_date: emp.joining_date,
+          emergency_contact_name: emp.emergency_contact_name,
+          emergency_contact_relationship: emp.emergency_contact_relationship,
+          emergency_contact_phone: emp.emergency_contact_phone,
+          emergency_contact_occupation: emp.emergency_contact_occupation,
+          education_level: emp.education_level,
+          institute_name: emp.institute_name,
+          year_of_passing: emp.year_of_passing,
+          marks_type: emp.marks_type,
+          marks_value: emp.marks_value,
+          account_holder_name: emp.account_holder_name,
+          account_number: emp.account_number,
+          bank_name: emp.bank_name,
+          ifsc_code: emp.ifsc_code,
+          branch_name: emp.branch_name,
+          account_type: emp.account_type,
+        };
+      });
 
       const departmentsData = extractListData(departmentsRes?.data || []).map(dept => ({
         id: dept.id,
@@ -145,16 +174,18 @@ const ManagerManagement = () => {
         );
         const fullEmployee = employeesData.find(emp => emp.user_id === mgr.id);
         return {
+          // Spread fullEmployee first so its `id` (Employee PK) doesn't overwrite the User ID
+          ...fullEmployee,
+          // These always win — user_id and id both point to the User PK
           id: mgr.id,
-          name: mgr.username || `${mgr.first_name || ''} ${mgr.last_name || ''}`.trim(),
-          email: mgr.email,
-          employee_id: mgr.employee_id,
+          user_id: mgr.id,
+          name: fullEmployee?.name || mgr.username || `${mgr.first_name || ''} ${mgr.last_name || ''}`.trim(),
+          email: mgr.email || fullEmployee?.email,
+          employee_id: mgr.employee_id || fullEmployee?.employee_id,
           department_name: assignedDept?.name || assignedDeptName || "Not assigned",
           department_id: assignedDept?.id,
           status: "Active",
-          user_id: mgr.id,
           managed_department: mgr.managed_department,
-          ...fullEmployee
         };
       });
 
@@ -189,15 +220,29 @@ const ManagerManagement = () => {
       return;
     }
     const searchLower = value.toLowerCase().trim();
-    const managerIds = managers.map(m => m.id);
+    const managerIds = new Set(managers.map(m => m.user_id || m.id));
+
     const filtered = employees.filter((emp) => {
-      if (managerIds.includes(emp.user_id)) return false;
-      return (
-        emp.name?.toLowerCase().includes(searchLower) ||
-        emp.email?.toLowerCase().includes(searchLower) ||
-        emp.employee_id?.toLowerCase().includes(searchLower)
-      );
+      // Exclude employees who are already managers
+      if (managerIds.has(emp.user_id) || managerIds.has(emp.id)) return false;
+
+      const fields = [
+        emp.name,
+        emp.first_name,
+        emp.last_name,
+        emp.middle_name,
+        // first + last combined in case full_name is missing
+        `${emp.first_name || ''} ${emp.last_name || ''}`.trim(),
+        `${emp.last_name || ''} ${emp.first_name || ''}`.trim(),
+        emp.email,
+        emp.employee_id,
+        emp.department,
+        emp.designation,
+      ];
+
+      return fields.some(f => f && String(f).toLowerCase().includes(searchLower));
     });
+
     setFilteredEmployees(filtered);
     setShowSuggestions(true);
   };
@@ -246,14 +291,32 @@ const ManagerManagement = () => {
     if (!managerToDelete) return;
     setDeleteLoading(true);
     try {
-      await api.post("/revoke-manager/", { manager_id: managerToDelete.id });
+      // Always send the User ID (user_id), never the Employee PK
+      const userId = managerToDelete.user_id || managerToDelete.id;
+      await api.post("/revoke-manager/", { manager_id: userId });
       showToast(`${managerToDelete.name} has been removed from managers.`, "success");
+      // Optimistically remove from list immediately
+      setManagers(prev => prev.filter(m => (m.user_id || m.id) !== userId));
       setShowDeleteModal(false);
       setManagerToDelete(null);
-      await fetchAllData();
+      // Refresh in background to sync full state
+      fetchAllData();
     } catch (err) {
-      const errorMsg = err.response?.data?.error || err.response?.data?.message || "Failed to remove manager";
-      showToast(errorMsg, "error");
+      const errData = err.response?.data;
+      const errorMsg = errData?.error || errData?.message || err.message || "Failed to remove manager";
+
+      // If backend says "not found" the user's role was already changed —
+      // remove them from the list anyway so the UI stays consistent
+      if (err.response?.status === 404) {
+        const userId = managerToDelete.user_id || managerToDelete.id;
+        setManagers(prev => prev.filter(m => (m.user_id || m.id) !== userId));
+        showToast(`${managerToDelete.name} removed from manager list.`, "success");
+        setShowDeleteModal(false);
+        setManagerToDelete(null);
+        fetchAllData();
+      } else {
+        showToast(errorMsg, "error");
+      }
     } finally {
       setDeleteLoading(false);
     }
@@ -745,7 +808,7 @@ const ManagerManagement = () => {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#F8FAFC' }}>
-                {['Manager', 'Employee ID', 'Email', 'Department', 'Status', 'Actions'].map(h => (
+                {['Manager', 'Employee ID', 'Email', 'Department', 'Status'].map(h => (
                   <th key={h} style={{
                     padding: '13px 16px', textAlign: 'left',
                     color: '#64748B', fontSize: '11px', fontWeight: '700',
@@ -758,7 +821,7 @@ const ManagerManagement = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', fontSize: '14px' }}>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', fontSize: '14px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                       <span style={{ fontSize: '32px' }}>⏳</span>
                       Loading managers...
@@ -767,7 +830,7 @@ const ManagerManagement = () => {
                 </tr>
               ) : managers.length === 0 ? (
                 <tr>
-                  <td colSpan="6" style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', fontSize: '14px' }}>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', fontSize: '14px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                       <span style={{ fontSize: '36px' }}>👑</span>
                       No managers yet. Promote an employee to get started.
@@ -823,38 +886,7 @@ const ManagerManagement = () => {
                       Active
                     </span>
                   </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        onClick={e => { e.stopPropagation(); handleViewManager(m); }}
-                        title="View Details"
-                        style={{
-                          padding: '6px 12px', background: '#EFF6FF', color: '#3B82F6',
-                          border: '1px solid #BFDBFE', borderRadius: '8px', fontSize: '12px',
-                          fontWeight: '600', cursor: 'pointer', display: 'inline-flex',
-                          alignItems: 'center', gap: '5px', transition: 'all 0.2s',
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#DBEAFE'}
-                        onMouseLeave={e => e.currentTarget.style.backgroundColor = '#EFF6FF'}
-                      >
-                        <Eye size={13} /> View
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); setManagerToDelete(m); setShowDeleteModal(true); }}
-                        title="Remove Manager"
-                        style={{
-                          padding: '6px 12px', background: '#FEF2F2', color: '#DC2626',
-                          border: '1px solid #FECACA', borderRadius: '8px', fontSize: '12px',
-                          fontWeight: '600', cursor: 'pointer', display: 'inline-flex',
-                          alignItems: 'center', gap: '5px', transition: 'all 0.2s',
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#FEE2E2'}
-                        onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FEF2F2'}
-                      >
-                        <Trash2 size={13} /> Remove
-                      </button>
-                    </div>
-                  </td>
+                  {/* Actions removed from row — use modal for view/remove */}
                 </tr>
               ))}
             </tbody>

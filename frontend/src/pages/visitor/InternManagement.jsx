@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import axios from 'axios';
 
 const InternManagement = ({ user }) => {
@@ -34,7 +34,7 @@ const InternManagement = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/visitors/?visitor_type=INTERN', {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/?visitor_type=INTERN`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setInterns(response.data);
@@ -49,7 +49,7 @@ const InternManagement = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get(`http://localhost:8000/api/interns/${internId}/full-details/`, {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/interns/${internId}/full-details/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setInternDetails(response.data);
@@ -72,7 +72,7 @@ const InternManagement = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      await axios.post(`http://localhost:8000/api/interns/${selectedIntern.id}/tasks/`, taskForm, {
+      await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/interns/${selectedIntern.id}/tasks/`, taskForm, {
         headers: { Authorization: `Bearer ${token}` }
       });
       alert('Task added successfully!');
@@ -99,7 +99,7 @@ const InternManagement = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      await axios.post(`http://localhost:8000/api/interns/${selectedIntern.id}/attendance/`, attendanceForm, {
+      await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/interns/${selectedIntern.id}/attendance/`, attendanceForm, {
         headers: { Authorization: `Bearer ${token}` }
       });
       alert('Attendance recorded successfully!');

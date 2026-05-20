@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import api from '../../utils/axiosConfig';
 import { extractListData } from '../../utils/extractListData';
 import { Eye, Calendar, X } from 'lucide-react';
@@ -8,7 +8,7 @@ import ReportSummaryCard from '../../components/reports/ReportSummaryCards';
 import ReportTable from '../../components/reports/ReportTable';
 import { formatDate } from '../../utils/reportUtils';
 
-/* ─── Design Tokens (matching HRMS system) ──────────────────────────
+/* ─── Design Tokens ──────────────────────────────────────────────────
    Primary:       #F97316  (orange-500)
    Primary Dark:  #EA580C  (orange-600)
    Primary Light: #FFF7ED  (orange-50)
@@ -21,42 +21,647 @@ import { formatDate } from '../../utils/reportUtils';
    Text Muted:    #64748B
    ─────────────────────────────────────────────────────────────────── */
 
-/* ─── Summary card configurations per report type ──────────────── */
+/* ─── Shared Style Objects ─────────────────────────────────────────── */
+const inputStyle = {
+  width: '100%',
+  padding: '10px 14px',
+  border: '1.5px solid #E2E8F0',
+  borderRadius: '8px',
+  fontSize: '14px',
+  boxSizing: 'border-box',
+  transition: 'border-color 0.2s, box-shadow 0.2s',
+  outline: 'none',
+  color: '#0F172A',
+  backgroundColor: '#fff',
+  fontFamily: 'inherit',
+};
+
+const selectStyle = {
+  ...inputStyle,
+  cursor: 'pointer',
+  appearance: 'none',
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748B' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 12px center',
+  paddingRight: '36px',
+};
+
+const labelStyle = {
+  display: 'block',
+  marginBottom: '6px',
+  fontSize: '12px',
+  fontWeight: '600',
+  color: '#475569',
+  textTransform: 'uppercase',
+  letterSpacing: '0.5px',
+};
+
+/* ─── Summary card configurations per report type ──────────────────── */
 const getSummaryCards = (reportType, summary) => {
   switch (reportType) {
     case 'attendance':
       return [
-        { label: 'Total Employees', value: summary.total_employees ?? 0,  sub: 'In selected period', gradient: 'linear-gradient(135deg, #F97316, #EA580C)', shadow: 'rgba(249,115,22,0.25)' },
-        { label: 'Present',         value: summary.present ?? 0,          sub: 'Marked present', gradient: 'linear-gradient(135deg, #16A34A, #15803D)', shadow: 'rgba(22,163,74,0.25)' },
-        { label: 'Absent',          value: summary.absent ?? 0,           sub: 'Not marked in', gradient: 'linear-gradient(135deg, #DC2626, #B91C1C)', shadow: 'rgba(220,38,38,0.25)' },
-        { label: 'On Leave',        value: summary.on_leave ?? 0,         sub: 'Approved leave', gradient: 'linear-gradient(135deg, #F59E0B, #D97706)', shadow: 'rgba(245,158,11,0.25)' },
+        { label: 'Total Employees', value: summary.total_employees ?? 0,  sub: 'In selected period', gradient: 'linear-gradient(135deg, #F97316, #EA580C)', shadow: 'rgba(249,115,22,0.25)'},
+        { label: 'Present',         value: summary.present ?? 0,          sub: 'Marked present',     gradient: 'linear-gradient(135deg, #16A34A, #15803D)', shadow: 'rgba(22,163,74,0.25)'},
+        { label: 'Absent',          value: summary.absent ?? 0,           sub: 'Not marked in',      gradient: 'linear-gradient(135deg, #DC2626, #B91C1C)', shadow: 'rgba(220,38,38,0.25)'},
+        { label: 'On Leave',        value: summary.on_leave ?? 0,         sub: 'Approved leave',     gradient: 'linear-gradient(135deg, #F59E0B, #D97706)', shadow: 'rgba(245,158,11,0.25)'},
       ];
     case 'leave':
       return [
-        { label: 'Total Requests',  value: summary.total_leaves ?? 0,    sub: 'All requests',          icon: '📝', gradient: 'linear-gradient(135deg, #F97316, #EA580C)', shadow: 'rgba(249,115,22,0.25)' },
-        { label: 'Approved',        value: summary.approved ?? 0,        sub: 'Leaves granted',        icon: '✅', gradient: 'linear-gradient(135deg, #16A34A, #15803D)', shadow: 'rgba(22,163,74,0.25)' },
-        { label: 'Pending',         value: summary.pending ?? 0,         sub: 'Awaiting review',       icon: '⏳', gradient: 'linear-gradient(135deg, #F59E0B, #D97706)', shadow: 'rgba(245,158,11,0.25)' },
-        { label: 'Rejected',        value: summary.rejected ?? 0,        sub: 'Leaves declined',       icon: '🚫', gradient: 'linear-gradient(135deg, #DC2626, #B91C1C)', shadow: 'rgba(220,38,38,0.25)' },
+        { label: 'Total Requests', value: summary.total_leaves ?? 0, sub: 'All requests', gradient: 'linear-gradient(135deg, #F97316, #EA580C)', shadow: 'rgba(249,115,22,0.25)' },
+        { label: 'Approved',       value: summary.approved ?? 0,     sub: 'Leaves granted',gradient: 'linear-gradient(135deg, #16A34A, #15803D)', shadow: 'rgba(22,163,74,0.25)'   },
+        { label: 'Pending',        value: summary.pending ?? 0,      sub: 'Awaiting review',gradient: 'linear-gradient(135deg, #F59E0B, #D97706)', shadow: 'rgba(245,158,11,0.25)'  },
+        { label: 'Rejected',       value: summary.rejected ?? 0,     sub: 'Leaves declined', gradient: 'linear-gradient(135deg, #DC2626, #B91C1C)', shadow: 'rgba(220,38,38,0.25)'   },
       ];
     case 'employee':
       return [
-        { label: 'Total Employees', value: summary.total_employees ?? 0, sub: 'Total headcount',       icon: '👥', gradient: 'linear-gradient(135deg, #F97316, #EA580C)', shadow: 'rgba(249,115,22,0.25)' },
-        { label: 'Active',          value: summary.active_employees ?? 0, sub: 'Currently active',     icon: '🟢', gradient: 'linear-gradient(135deg, #16A34A, #15803D)', shadow: 'rgba(22,163,74,0.25)' },
-        { label: 'New Joins',       value: summary.new_joins ?? 0,       sub: 'Recent joiners',        icon: '🆕', gradient: 'linear-gradient(135deg, #2563EB, #1D4ED8)', shadow: 'rgba(37,99,235,0.25)' },
-        { label: 'Top Performers',  value: summary.excellent_performers ?? 0, sub: 'Excellent rating', icon: '⭐', gradient: 'linear-gradient(135deg, #F59E0B, #D97706)', shadow: 'rgba(245,158,11,0.25)' },
+        { label: 'Total Employees', value: summary.total_employees ?? 0,   sub: 'Total headcount', gradient: 'linear-gradient(135deg, #F97316, #EA580C)', shadow: 'rgba(249,115,22,0.25)' },
+        { label: 'Active',          value: summary.active_employees ?? 0,   sub: 'Currently active', gradient: 'linear-gradient(135deg, #16A34A, #15803D)', shadow: 'rgba(22,163,74,0.25)'   },
+        { label: 'New Joins',       value: summary.new_joins ?? 0,          sub: 'Recent joiners', gradient: 'linear-gradient(135deg, #2563EB, #1D4ED8)', shadow: 'rgba(37,99,235,0.25)'   },
+        { label: 'Top Performers',  value: summary.excellent_performers ?? 0, sub: 'Excellent rating', gradient: 'linear-gradient(135deg, #F59E0B, #D97706)', shadow: 'rgba(245,158,11,0.25)'  },
       ];
     default:
       return [];
   }
 };
 
-/* ─── Date range label helper ────────────────────────────────────── */
+/* ─── Date range label helper ───────────────────────────────────────── */
 const getDateLabel = (dateMode, filters) =>
   dateMode === 'single'
     ? formatDate(filters.singleDate)
     : `${formatDate(filters.startDate)} → ${formatDate(filters.endDate)}`;
 
-/* ─── Detail Modal ───────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════
+   PRINT REPORT GENERATORS
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Attendance Print HTML ─────────────────────────────────────────── */
+const generateAttendancePrintHTML = ({ title, subtitle, data, summary }) => {
+  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  const summaryStats = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px;">
+      ${[
+        ['Total Employees', summary.total_employees ?? data.length, '#2563eb'],
+        ['Present',         summary.present ?? data.filter(r => r.status === 'Present' || r.status === 'PRESENT').length, '#16a34a'],
+        ['Absent',          summary.absent  ?? data.filter(r => r.status === 'Absent'  || r.status === 'ABSENT').length,  '#dc2626'],
+        ['On Leave',        summary.on_leave ?? data.filter(r => (r.status || '').toLowerCase().includes('leave')).length, '#d97706'],
+      ].map(([label, val, color]) => `
+        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center;border-top:3px solid ${color}">
+          <div style="font-size:28px;font-weight:800;color:${color}">${val}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:4px;font-weight:500">${label}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  const getStatusStyle = (status) => {
+    const s = (status || '').toUpperCase();
+    if (s === 'PRESENT') return 'background:#dcfce7;color:#166534;';
+    if (s === 'ABSENT')  return 'background:#fee2e2;color:#991b1b;';
+    return 'background:#fef3c7;color:#92400e;';
+  };
+
+  const rows = data.map(r => `
+    <tr>
+      <td>${r.employee_name || 'N/A'}</td>
+      <td style="font-family:monospace;color:#f97316;font-weight:700">${r.employee_id || 'N/A'}</td>
+      <td>${r.department || 'N/A'}</td>
+      <td>${r.date || '—'}</td>
+      <td><span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;${getStatusStyle(r.status)}">${r.status || 'N/A'}</span></td>
+      <td>${r.login_time || '—'}</td>
+      <td>${r.logout_time || '—'}</td>
+      <td style="text-align:center;font-weight:700;color:#2563eb">${r.working_hours ? r.working_hours + 'h' : '—'}</td>
+      <td style="text-align:center;font-weight:700;color:#16a34a">${r.attendance_percentage != null ? r.attendance_percentage + '%' : '—'}</td>
+    </tr>
+  `).join('');
+
+  return generateBasePrintHTML({
+    title,
+    subtitle,
+    today,
+    summaryStats,
+    tableHeaders: ['Employee', 'Emp ID', 'Department', 'Date', 'Status', 'Login', 'Logout', 'Hours', 'Attendance %'],
+    tableRows: rows,
+    totalRecords: data.length,
+  });
+};
+
+/* ─── Leave Print HTML ──────────────────────────────────────────────── */
+const generateLeavePrintHTML = ({ title, subtitle, data, summary }) => {
+  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  const summaryStats = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px;">
+      ${[
+        ['Total Requests', summary.total_leaves ?? data.length,                                          '#2563eb'],
+        ['Approved',       summary.approved ?? data.filter(r => r.status === 'APPROVED').length,         '#16a34a'],
+        ['Pending',        summary.pending  ?? data.filter(r => r.status === 'PENDING').length,          '#d97706'],
+        ['Rejected',       summary.rejected ?? data.filter(r => r.status === 'REJECTED').length,         '#dc2626'],
+      ].map(([label, val, color]) => `
+        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center;border-top:3px solid ${color}">
+          <div style="font-size:28px;font-weight:800;color:${color}">${val}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:4px;font-weight:500">${label}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  const getStatusStyle = (status) => {
+    if (status === 'APPROVED') return 'background:#dcfce7;color:#166534;';
+    if (status === 'REJECTED') return 'background:#fee2e2;color:#991b1b;';
+    return 'background:#fef3c7;color:#92400e;';
+  };
+
+  const rows = data.map(r => `
+    <tr>
+      <td>${r.employee_name || 'N/A'}</td>
+      <td style="font-family:monospace;color:#f97316;font-weight:700">${r.employee_id || 'N/A'}</td>
+      <td>${r.department || 'N/A'}</td>
+      <td>${r.leave_type || 'N/A'}</td>
+      <td>${r.start_date || '—'}</td>
+      <td>${r.end_date || '—'}</td>
+      <td style="text-align:center;font-weight:700">${r.total_days || r.leave_days || 0}</td>
+      <td><span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;${getStatusStyle(r.status)}">${r.status || 'N/A'}</span></td>
+      <td>${r.reason || '—'}</td>
+    </tr>
+  `).join('');
+
+  return generateBasePrintHTML({
+    title,
+    subtitle,
+    today,
+    summaryStats,
+    tableHeaders: ['Employee', 'Emp ID', 'Department', 'Leave Type', 'From', 'To', 'Days', 'Status', 'Reason'],
+    tableRows: rows,
+    totalRecords: data.length,
+  });
+};
+
+/* ─── Employee Print HTML ───────────────────────────────────────────── */
+const generateEmployeePrintHTML = ({ title, subtitle, data, summary }) => {
+  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  const summaryStats = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px;">
+      ${[
+        ['Total Employees', summary.total_employees ?? data.length,                                                                    '#2563eb'],
+        ['Active',          summary.active_employees ?? data.filter(r => (r.status || '').toUpperCase() === 'ACTIVE').length,          '#16a34a'],
+        ['New Joins',       summary.new_joins ?? 0,                                                                                    '#7c3aed'],
+        ['Top Performers',  summary.excellent_performers ?? data.filter(r => (r.performance_rating || '').toUpperCase() === 'EXCELLENT').length, '#d97706'],
+      ].map(([label, val, color]) => `
+        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center;border-top:3px solid ${color}">
+          <div style="font-size:28px;font-weight:800;color:${color}">${val}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:4px;font-weight:500">${label}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  const getPerfStyle = (rating) => {
+    const r = (rating || '').toUpperCase();
+    if (r === 'EXCELLENT') return 'background:#dbeafe;color:#1d4ed8;';
+    if (r === 'GOOD')      return 'background:#dcfce7;color:#166534;';
+    if (r === 'AVERAGE')   return 'background:#fef3c7;color:#92400e;';
+    return 'background:#f1f5f9;color:#475569;';
+  };
+
+  const rows = data.map(r => `
+    <tr>
+      <td>${r.employee_name || 'N/A'}</td>
+      <td style="font-family:monospace;color:#f97316;font-weight:700">${r.employee_id || 'N/A'}</td>
+      <td>${r.department || 'N/A'}</td>
+      <td>${r.designation || 'N/A'}</td>
+      <td>${r.joining_date ? new Date(r.joining_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'}</td>
+      <td style="text-align:center;font-weight:700;color:#2563eb">${r.tenure_years != null ? r.tenure_years + 'y' : '—'}</td>
+      <td style="text-align:center;font-weight:700">${r.leaves_taken ?? '—'}</td>
+      <td><span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;${getPerfStyle(r.performance_rating)}">${r.performance_rating || 'N/A'}</span></td>
+      <td style="font-weight:700;color:#16a34a">${r.last_salary ? '₹' + Number(r.last_salary).toLocaleString() : '—'}</td>
+    </tr>
+  `).join('');
+
+  return generateBasePrintHTML({
+    title,
+    subtitle,
+    today,
+    summaryStats,
+    tableHeaders: ['Employee', 'Emp ID', 'Department', 'Designation', 'Joined', 'Tenure', 'Leaves', 'Performance', 'Salary'],
+    tableRows: rows,
+    totalRecords: data.length,
+  });
+};
+
+/* ─── Base print HTML template (shared layout) ──────────────────────── */
+const generateBasePrintHTML = ({ title, subtitle, today, summaryStats, tableHeaders, tableRows, totalRecords }) => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${title}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; background: #fff; color: #111827; padding: 0; }
+    .page { padding: 40px 48px; max-width: 1200px; margin: 0 auto; }
+    .report-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; padding-bottom: 22px; border-bottom: 3px solid #f97316; }
+    .company-block { display: flex; align-items: center; gap: 14px; }
+    .company-icon { width: 48px; height: 48px; background: #f97316; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; color: white; }
+    .company-name { font-size: 22px; font-weight: 800; color: #111827; letter-spacing: -0.5px; }
+    .company-sub { font-size: 12px; color: #6b7280; margin-top: 3px; }
+    .report-meta { text-align: right; }
+    .report-title { font-size: 18px; font-weight: 700; color: #111827; }
+    .report-date { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .report-subtitle { font-size: 12px; color: #f97316; font-weight: 600; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th { padding: 11px 13px; background: #111827; color: #fff; font-weight: 600; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; }
+    thead th:first-child { border-radius: 8px 0 0 0; }
+    thead th:last-child { border-radius: 0 8px 0 0; }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:hover { background: #fff7ed; }
+    tbody td { padding: 11px 13px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+    .footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 11px; color: #9ca3af; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { padding: 24px 28px; }
+      thead th { background: #111827 !important; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="report-header">
+    <div class="company-block">
+      <div class="company-icon">📋</div>
+      <div>
+        <div class="company-name">HR Management System</div>
+        <div class="company-sub">HR Reports Portal</div>
+      </div>
+    </div>
+    <div class="report-meta">
+      <div class="report-title">${title}</div>
+      <div class="report-subtitle">${subtitle}</div>
+      <div class="report-date">Generated: ${today}</div>
+    </div>
+  </div>
+  ${summaryStats}
+  <table>
+    <thead>
+      <tr>${tableHeaders.map(h => `<th>${h}</th>`).join('')}</tr>
+    </thead>
+    <tbody>${tableRows || '<tr><td colspan="20" style="text-align:center;padding:40px;color:#9ca3af;">No data available</td></tr>'}</tbody>
+  </table>
+  <div class="footer">
+    <span>Total Records: <strong>${totalRecords}</strong></span>
+    <span>Confidential — HR Use Only</span>
+    <span>Page 1 of 1</span>
+  </div>
+</div>
+<script>window.onload = () => { window.print(); }</script>
+</body>
+</html>`;
+
+const openPrintWindow = (html) => {
+  const win = window.open('', '_blank', 'width=1200,height=800');
+  if (!win) { alert('Please allow popups to print reports.'); return; }
+  win.document.write(html);
+  win.document.close();
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   HR REPORTS PRINT MODAL
+   ═══════════════════════════════════════════════════════════════════ */
+const HRPrintModal = ({
+  onClose,
+  reportData,
+  summary,
+  reportType,
+  employees,
+  departments,
+  dateMode,
+  filters,
+  flatExportData,
+}) => {
+  const [printScope, setPrintScope]       = useState('current');
+  const [selectedDept, setSelectedDept]   = useState('');
+  const [selectedEmpId, setSelectedEmpId] = useState('');
+  const [statusFilter, setStatusFilter]   = useState('ALL');
+  const [dateFrom, setDateFrom]           = useState('');
+  const [dateTo, setDateTo]               = useState('');
+
+  /* ── Flatten range attendance data ────────────────────────────── */
+  const allData = useMemo(() => {
+    if (!Array.isArray(reportData)) return [];
+    if (dateMode === 'range' && reportType === 'attendance') {
+      return reportData.flatMap(group =>
+        (group.employees || []).map(emp => ({ ...emp, date: group.date }))
+      );
+    }
+    return reportData;
+  }, [reportData, dateMode, reportType]);
+
+  /* ── Apply optional extra filters ─────────────────────────────── */
+  const applyFilters = (data) => {
+    let result = [...data];
+    if (statusFilter !== 'ALL') {
+      result = result.filter(r =>
+        (r.status || '').toUpperCase() === statusFilter
+      );
+    }
+    if (dateFrom) result = result.filter(r => (r.date || r.start_date || '') >= dateFrom);
+    if (dateTo)   result = result.filter(r => (r.date || r.end_date   || '') <= dateTo);
+    return result;
+  };
+
+  /* ── Print option definitions per report type ──────────────────── */
+  const getPrintOptions = () => {
+    if (reportType === 'attendance') {
+      return [
+        { id: 'current', label: 'Current Report',       desc: 'Print the currently loaded data' },
+        { id: 'department', label: 'By Department',         desc: 'Filter to a specific department' },
+        { id: 'employee', label: 'By Employee',           desc: 'Individual employee attendance' },
+        { id: 'present', label: 'Present Only',          desc: 'Only present records' },
+        { id: 'absent', label: 'Absent Only',           desc: 'Only absent records' },
+      ];
+    }
+    if (reportType === 'leave') {
+      return [
+        { id: 'current', label: 'Current Report',       desc: 'Print the currently loaded data' },
+        { id: 'department', label: 'By Department',         desc: 'Filter to a specific department' },
+        { id: 'employee', label: 'By Employee',           desc: 'Individual employee leaves' },
+        { id: 'approved', label: 'Approved Only',         desc: 'Only approved leave requests' },
+        { id: 'pending', label: 'Pending Only',          desc: 'Only pending requests' },
+        { id: 'rejected', label: 'Rejected Only',         desc: 'Only rejected requests' },
+      ];
+    }
+    if (reportType === 'employee') {
+      return [
+        { id: 'current', label: 'All Employees',         desc: 'Print full employee activity report' },
+        { id: 'department', label: 'By Department',         desc: 'Filter to a specific department' },
+        { id: 'excellent', label: 'Top Performers',        desc: 'Excellent performance rating only' },
+        { id: 'new_joins', label: 'New Joiners',           desc: 'Recently joined employees' },
+      ];
+    }
+    return [{ id: 'current', label: 'Current Report', desc: 'Print current report data' }];
+  };
+
+  const printOptions = getPrintOptions();
+
+  const showFilters = printScope && !['present', 'absent', 'approved', 'pending', 'rejected', 'excellent', 'new_joins'].includes(printScope);
+  const isDisabled  = !printScope
+    || (printScope === 'department' && !selectedDept)
+    || (printScope === 'employee'   && !selectedEmpId);
+
+  const handlePrint = () => {
+    let printData, title, subtitle;
+    const dateLabel = getDateLabel(dateMode, filters);
+
+    /* ── Determine print data based on scope ── */
+    if (printScope === 'current') {
+      printData = applyFilters(allData);
+      title     = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`;
+      subtitle  = dateLabel;
+    } else if (printScope === 'department') {
+      printData = applyFilters(allData.filter(r => r.department === selectedDept));
+      title     = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report — ${selectedDept}`;
+      subtitle  = `Department: ${selectedDept} · ${dateLabel}`;
+    } else if (printScope === 'employee') {
+      printData = applyFilters(allData.filter(r =>
+        r.employee_id === selectedEmpId || String(r.employee) === selectedEmpId
+      ));
+      const empInfo = employees.find(e =>
+        (e.employee_id || String(e.id)) === selectedEmpId
+      );
+      const empName = empInfo
+        ? `${empInfo.first_name || ''} ${empInfo.last_name || ''}`.trim()
+        : selectedEmpId;
+      title    = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report — ${empName}`;
+      subtitle = `Individual Report · ${dateLabel}`;
+    } else if (printScope === 'present') {
+      printData = allData.filter(r => (r.status || '').toUpperCase() === 'PRESENT');
+      title     = 'Attendance Report — Present';
+      subtitle  = `Present employees · ${dateLabel}`;
+    } else if (printScope === 'absent') {
+      printData = allData.filter(r => (r.status || '').toUpperCase() === 'ABSENT');
+      title     = 'Attendance Report — Absent';
+      subtitle  = `Absent employees · ${dateLabel}`;
+    } else if (printScope === 'approved') {
+      printData = allData.filter(r => (r.status || '').toUpperCase() === 'APPROVED');
+      title     = 'Leave Report — Approved';
+      subtitle  = `Approved leaves · ${dateLabel}`;
+    } else if (printScope === 'pending') {
+      printData = allData.filter(r => (r.status || '').toUpperCase() === 'PENDING');
+      title     = 'Leave Report — Pending';
+      subtitle  = `Pending requests · ${dateLabel}`;
+    } else if (printScope === 'rejected') {
+      printData = allData.filter(r => (r.status || '').toUpperCase() === 'REJECTED');
+      title     = 'Leave Report — Rejected';
+      subtitle  = `Rejected requests · ${dateLabel}`;
+    } else if (printScope === 'excellent') {
+      printData = allData.filter(r => (r.performance_rating || '').toUpperCase() === 'EXCELLENT');
+      title     = 'Employee Activity — Top Performers';
+      subtitle  = `Excellent performance rating · ${dateLabel}`;
+    } else if (printScope === 'new_joins') {
+      printData = allData.filter(r => r.is_new_join || r.new_join);
+      title     = 'Employee Activity — New Joiners';
+      subtitle  = `Recently joined employees · ${dateLabel}`;
+    } else {
+      printData = applyFilters(allData);
+      title     = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`;
+      subtitle  = dateLabel;
+    }
+
+    if (!printData || printData.length === 0) {
+      alert('No data found for the selected criteria.');
+      return;
+    }
+
+    /* ── Generate HTML based on report type ── */
+    let html;
+    if (reportType === 'attendance') {
+      html = generateAttendancePrintHTML({ title, subtitle, data: printData, summary });
+    } else if (reportType === 'leave') {
+      html = generateLeavePrintHTML({ title, subtitle, data: printData, summary });
+    } else {
+      html = generateEmployeePrintHTML({ title, subtitle, data: printData, summary });
+    }
+
+    openPrintWindow(html);
+  };
+
+  const reportTypeLabel = { attendance: 'Attendance', leave: 'Leave', employee: 'Employee Activity' }[reportType] || 'HR';
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.55)',
+      backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', zIndex: 1000, padding: '20px',
+      animation: 'fadeIn 0.25s ease',
+    }} onClick={onClose}>
+      <div style={{
+        backgroundColor: 'white', borderRadius: '20px',
+        width: '90%', maxWidth: '700px', maxHeight: '92vh', overflow: 'auto',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.2)', animation: 'slideUp 0.3s ease',
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{
+          background: 'linear-gradient(135deg, #F97316, #EA580C)',
+          padding: '22px 28px', color: 'white',
+          borderRadius: '20px 20px 0 0',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2 style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 3px 0', letterSpacing: '-0.3px' }}>
+                🖨️ Print {reportTypeLabel} Report
+              </h2>
+              <p style={{ fontSize: '13px', opacity: 0.85, margin: 0 }}>
+                Choose what to include in the printed report
+              </p>
+            </div>
+            <button onClick={onClose} style={{
+              background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+              fontSize: '22px', cursor: 'pointer', width: '36px', height: '36px',
+              borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>×</button>
+          </div>
+        </div>
+
+        <div style={{ padding: '28px' }}>
+          {/* Current data info banner */}
+          <div style={{
+            backgroundColor: '#FFF7ED', border: '1.5px solid #FED7AA',
+            borderRadius: '10px', padding: '12px 16px', marginBottom: '20px',
+            display: 'flex', alignItems: 'center', gap: '10px',
+            fontSize: '13px', color: '#C2410C', fontWeight: '600',
+          }}>
+            <span style={{ fontSize: '16px' }}>📊</span>
+            {allData.length} records loaded · {getDateLabel(dateMode, filters)}
+          </div>
+
+          {/* Print scope options */}
+          <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '14px' }}>
+            Select Print Scope
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+            {printOptions.map(opt => (
+              <div key={opt.id} onClick={() => setPrintScope(opt.id)} style={{
+                padding: '14px 16px', borderRadius: '12px', cursor: 'pointer',
+                border: `2px solid ${printScope === opt.id ? '#F97316' : '#E2E8F0'}`,
+                backgroundColor: printScope === opt.id ? '#FFF7ED' : 'white',
+                transition: 'all 0.15s',
+                display: 'flex', alignItems: 'flex-start', gap: '12px',
+              }}>
+                <span style={{ fontSize: '20px', flexShrink: 0 }}>{opt.icon}</span>
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '13px', color: printScope === opt.id ? '#EA580C' : '#0F172A' }}>{opt.label}</div>
+                  <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>{opt.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Conditional options */}
+          {printScope && (
+            <div style={{
+              backgroundColor: '#F8FAFC', borderRadius: '12px', padding: '18px',
+              border: '1.5px solid #E2E8F0', marginBottom: '4px',
+            }}>
+              <div style={{ ...labelStyle, marginBottom: '14px' }}>Report Options</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+
+                {/* Department selector */}
+                {printScope === 'department' && (
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={labelStyle}>Select Department</label>
+                    <select value={selectedDept} onChange={e => setSelectedDept(e.target.value)} style={selectStyle}>
+                      <option value="">— Choose Department —</option>
+                      {(Array.isArray(departments) ? departments : []).map(d => {
+                        const name = typeof d === 'string' ? d : d.name;
+                        return <option key={name} value={name}>{name}</option>;
+                      })}
+                    </select>
+                  </div>
+                )}
+
+                {/* Employee selector */}
+                {printScope === 'employee' && (
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={labelStyle}>Select Employee</label>
+                    <select value={selectedEmpId} onChange={e => setSelectedEmpId(e.target.value)} style={selectStyle}>
+                      <option value="">— Choose Employee —</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.employee_id || String(emp.id)}>
+                          {`${emp.first_name || ''} ${emp.last_name || ''}`.trim() || emp.full_name} ({emp.employee_id || emp.id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Generic date + status filters */}
+                {showFilters && (
+                  <>
+                    {/* Status filter — only for attendance and leave */}
+                    {(reportType === 'attendance' || reportType === 'leave') && (
+                      <div>
+                        <label style={labelStyle}>Status Filter</label>
+                        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={selectStyle}>
+                          <option value="ALL">All Statuses</option>
+                          {reportType === 'attendance' && <>
+                            <option value="PRESENT">Present Only</option>
+                            <option value="ABSENT">Absent Only</option>
+                          </>}
+                          {reportType === 'leave' && <>
+                            <option value="PENDING">Pending Only</option>
+                            <option value="APPROVED">Approved Only</option>
+                            <option value="REJECTED">Rejected Only</option>
+                          </>}
+                        </select>
+                      </div>
+                    )}
+                    <div>
+                      <label style={labelStyle}>From Date</label>
+                      <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>To Date</label>
+                      <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '18px 28px 24px', borderTop: '1.5px solid #F1F5F9',
+          display: 'flex', justifyContent: 'flex-end', gap: '12px',
+          backgroundColor: '#F8FAFC', borderRadius: '0 0 20px 20px',
+        }}>
+          <button onClick={onClose} style={{
+            padding: '10px 22px', backgroundColor: '#F8FAFC', color: '#475569',
+            border: '1.5px solid #E2E8F0', borderRadius: '10px', fontSize: '14px',
+            fontWeight: '700', cursor: 'pointer',
+          }}>Cancel</button>
+          <button onClick={handlePrint} disabled={isDisabled} style={{
+            padding: '10px 24px',
+            background: isDisabled ? '#CBD5E1' : 'linear-gradient(135deg, #F97316, #EA580C)',
+            color: 'white', border: 'none', borderRadius: '10px',
+            fontSize: '14px', fontWeight: '700',
+            cursor: isDisabled ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', gap: '8px',
+            boxShadow: isDisabled ? 'none' : '0 4px 12px rgba(249,115,22,0.3)',
+          }}>
+            🖨️ Generate &amp; Print
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─── Detail Modal ───────────────────────────────────────────────────── */
 const DetailModal = ({ detail, onClose }) => {
   if (!detail) return null;
   return (
@@ -188,7 +793,7 @@ const DetailModal = ({ detail, onClose }) => {
   );
 };
 
-/* ─── Date-group Card (range mode for attendance) ────────────────── */
+/* ─── Date-group Card (range mode for attendance) ───────────────────── */
 const DateGroupCard = ({ group, onViewDetail }) => (
   <div style={{
     backgroundColor: 'white', borderRadius: '14px',
@@ -223,10 +828,7 @@ const DateGroupCard = ({ group, onViewDetail }) => (
     </div>
 
     {/* Quick Stats Row */}
-    <div style={{
-      display: 'flex', gap: '0', padding: '0',
-      borderBottom: '1px solid #F8FAFC',
-    }}>
+    <div style={{ display: 'flex', gap: '0', padding: '0', borderBottom: '1px solid #F8FAFC' }}>
       {[
         { label: 'Present',      value: group.present ?? 0,             color: '#16A34A', bg: '#F0FDF4' },
         { label: 'Absent',       value: group.absent ?? 0,              color: '#DC2626', bg: '#FEF2F2' },
@@ -277,13 +879,14 @@ const DateGroupCard = ({ group, onViewDetail }) => (
    HRReports — Main Component
    ═══════════════════════════════════════════════════════════════════ */
 const HRReports = ({ user, isManager = false }) => {
-  const [loading, setLoading]       = useState(false);
-  const [reportData, setReportData] = useState([]);
-  const [summary, setSummary]       = useState({});
-  const [employees, setEmployees]   = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [dateMode, setDateMode]     = useState('single');
-  const [detailModal, setDetailModal] = useState(null);
+  const [loading, setLoading]           = useState(false);
+  const [reportData, setReportData]     = useState([]);
+  const [summary, setSummary]           = useState({});
+  const [employees, setEmployees]       = useState([]);
+  const [departments, setDepartments]   = useState([]);
+  const [dateMode, setDateMode]         = useState('single');
+  const [detailModal, setDetailModal]   = useState(null);
+  const [showPrintModal, setShowPrintModal] = useState(false);
   const [notification, setNotification] = useState(null);
 
   const [filters, setFilters] = useState({
@@ -297,15 +900,36 @@ const HRReports = ({ user, isManager = false }) => {
     frequency:  'daily',
   });
 
+  /* ── Fetch ALL employees (handles pagination) ───────────────────── */
+  const fetchAllEmployees = async () => {
+    const all = [];
+    let nextUrl = '/employees/?limit=100';
+    while (nextUrl) {
+      const res = await api.get(nextUrl);
+      const page = extractListData(res.data);
+      all.push(...page);
+      // Handle both absolute and relative next URLs
+      const raw = res.data?.next || null;
+      if (!raw) break;
+      try {
+        const url = new URL(raw);
+        nextUrl = url.pathname.replace('/api', '') + url.search;
+      } catch {
+        nextUrl = null;
+      }
+    }
+    return all;
+  };
+
   /* ── Initial data fetch ─────────────────────────────────────────── */
   useEffect(() => {
     (async () => {
       try {
-        const [empRes, deptRes] = await Promise.all([
-          api.get('/employees/'),
+        const [allEmps, deptRes] = await Promise.all([
+          fetchAllEmployees(),
           api.get('/departments/list/'),
         ]);
-        setEmployees(extractListData(empRes.data));
+        setEmployees(allEmps);
         setDepartments(extractListData(deptRes.data));
       } catch (err) {
         console.error('Error fetching employees/departments:', err);
@@ -367,7 +991,7 @@ const HRReports = ({ user, isManager = false }) => {
     setTimeout(() => setNotification(null), 3500);
   };
 
-  /* ── Flatten range data for export ─────────────────────────────── */
+  /* ── Flatten range data for export / print ──────────────────────── */
   const flatExportData = useMemo(() => {
     if (!Array.isArray(reportData)) return [];
     if (dateMode === 'range' && filters.reportType === 'attendance') {
@@ -378,11 +1002,9 @@ const HRReports = ({ user, isManager = false }) => {
     return reportData;
   }, [reportData, dateMode, filters.reportType]);
 
-  const summaryCards   = getSummaryCards(filters.reportType, summary);
-  const dateLabel      = getDateLabel(dateMode, filters);
-  const isRangeAttend  = dateMode === 'range' && filters.reportType === 'attendance';
-  const isTableReport  = ['employee'].includes(filters.reportType) ||
-                         (dateMode === 'single' && filters.reportType !== 'employee');
+  const summaryCards  = getSummaryCards(filters.reportType, summary);
+  const dateLabel     = getDateLabel(dateMode, filters);
+  const isRangeAttend = dateMode === 'range' && filters.reportType === 'attendance';
 
   const reportTitleMap = {
     attendance: '📅 Attendance Report',
@@ -399,8 +1021,10 @@ const HRReports = ({ user, isManager = false }) => {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
         @keyframes hrFadeIn { from { opacity:0 } to { opacity:1 } }
+        @keyframes fadeIn   { from { opacity:0 } to { opacity:1 } }
         @keyframes hrSlideUp { from { opacity:0; transform:translateY(20px) } to { opacity:1; transform:translateY(0) } }
-        @keyframes hrSpin { to { transform: rotate(360deg); } }
+        @keyframes slideUp   { from { opacity:0; transform:translateY(24px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes hrSpin    { to { transform: rotate(360deg); } }
         @keyframes summaryPulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
         input:focus, select:focus, textarea:focus {
           border-color: #F97316 !important;
@@ -466,21 +1090,40 @@ const HRReports = ({ user, isManager = false }) => {
             dateLabel={dateLabel}
             filename={`${filters.reportType}_report_${filters.singleDate || filters.startDate}`}
           />
+          {/* ── Print Report Button ── */}
           <button
-            onClick={() => window.print()}
+            onClick={() => setShowPrintModal(true)}
+            disabled={flatExportData.length === 0 && reportData.length === 0}
             style={{
-              padding: '10px 20px', backgroundColor: 'white', color: '#475569',
+              padding: '10px 20px',
+              backgroundColor: 'white', color: '#475569',
               border: '1.5px solid #E2E8F0', borderRadius: '10px',
-              fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+              fontSize: '14px', fontWeight: '700',
+              cursor: (flatExportData.length === 0 && reportData.length === 0) ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', gap: '7px',
               transition: 'all 0.2s',
+              opacity: (flatExportData.length === 0 && reportData.length === 0) ? 0.6 : 1,
             }}
-            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#F8FAFC'}
+            onMouseEnter={e => { if (flatExportData.length > 0 || reportData.length > 0) e.currentTarget.style.backgroundColor = '#F8FAFC'; }}
             onMouseLeave={e => e.currentTarget.style.backgroundColor = 'white'}
           >
-            🖨️ Print
+            🖨️ Print Report
           </button>
         </div>
+      </div>
+
+      {/* ── Summary Cards — right below the title ──────────────────── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '18px', marginBottom: '26px',
+      }}>
+        {loading
+          ? [1, 2, 3, 4].map(i => <ReportSummaryCard key={i} loading={true} />)
+          : summaryCards.map((card, i) => (
+              <ReportSummaryCard key={i} {...card} />
+            ))
+        }
       </div>
 
       {/* ── Filters Panel ──────────────────────────────────────────── */}
@@ -496,20 +1139,6 @@ const HRReports = ({ user, isManager = false }) => {
           onGenerate={generateReport}
           loading={loading}
         />
-      </div>
-
-      {/* ── Summary Cards ──────────────────────────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '18px', marginBottom: '26px',
-      }}>
-        {loading
-          ? [1, 2, 3, 4].map(i => <ReportSummaryCard key={i} loading={true} />)
-          : summaryCards.map((card, i) => (
-              <ReportSummaryCard key={i} {...card} />
-            ))
-        }
       </div>
 
       {/* ── Results Header ─────────────────────────────────────────── */}
@@ -538,7 +1167,6 @@ const HRReports = ({ user, isManager = false }) => {
 
       {/* ── Main Report Output ─────────────────────────────────────── */}
       {isRangeAttend ? (
-        /* Range mode: date-grouped cards */
         loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {[1, 2, 3].map(i => (
@@ -573,7 +1201,6 @@ const HRReports = ({ user, isManager = false }) => {
           ))
         )
       ) : (
-        /* Single day / employee: standard table */
         <ReportTable
           data={reportData}
           reportType={filters.reportType}
@@ -586,6 +1213,21 @@ const HRReports = ({ user, isManager = false }) => {
         <DetailModal
           detail={detailModal}
           onClose={() => setDetailModal(null)}
+        />
+      )}
+
+      {/* ── Print Modal ────────────────────────────────────────────── */}
+      {showPrintModal && (
+        <HRPrintModal
+          onClose={() => setShowPrintModal(false)}
+          reportData={reportData}
+          summary={summary}
+          reportType={filters.reportType}
+          employees={employees}
+          departments={departments}
+          dateMode={dateMode}
+          filters={filters}
+          flatExportData={flatExportData}
         />
       )}
     </div>

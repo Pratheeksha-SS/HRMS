@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { announcementService } from '../services/announcementService';
@@ -39,7 +39,7 @@ const AnnouncementDetail = ({ user, onEdit, onBack, id: propId }) => {
           const response = await announcementService.getOne(id);
           data = response.data;
         } catch (serviceError) {
-          const response = await axios.get(`http://localhost:8000/api/announcements/${id}/`, {
+          const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/announcements/${id}/`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           data = response.data;

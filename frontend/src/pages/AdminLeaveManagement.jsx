@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
+import api, { API_BASE_URL } from '../utils/axiosConfig';
 
 /* ─── Helpers ───────────────────────────────────────────────────────── */
 const extractListData = (data) => {
@@ -473,6 +474,7 @@ const AdminLeaveManagement = () => {
   const [notification, setNotification] = useState(null);
   const [showLeaveBalanceSection, setShowLeaveBalanceSection] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [departments, setDepartments] = useState([]);
 
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [selectedLeave, setSelectedLeave] = useState(null);
@@ -486,8 +488,6 @@ const AdminLeaveManagement = () => {
   const [extraLeaveData, setExtraLeaveData] = useState({ leave_type: 'SICK', days: 1, reason: 'Additional leave granted' });
   const cancelRef = useRef(null);
 
-  const token = () => localStorage.getItem('access_token');
-
   const showNotice = (message, type = 'info') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3500);
@@ -497,8 +497,7 @@ const AdminLeaveManagement = () => {
     if (cancelRef.current) cancelRef.current.abort();
     cancelRef.current = new AbortController();
     try {
-      const res = await axios.get('http://localhost:8000/api/leaves/', {
-        headers: { Authorization: `Bearer ${token()}` },
+      const res = await api.get('/leaves/', {
         signal: cancelRef.current.signal,
       });
       const leaveList = extractListData(res.data);
@@ -513,9 +512,7 @@ const AdminLeaveManagement = () => {
   const fetchEmployees = useCallback(async (silent = false) => {
     if (!silent) setLoadingEmployees(true);
     try {
-      const res = await axios.get('http://localhost:8000/api/employees/', {
-        headers: { Authorization: `Bearer ${token()}` },
-      });
+      const res = await api.get('/employees/');
       const empList = extractListData(res.data);
       setEmployees(Array.isArray(empList) ? empList : []);
     } catch (err) {
@@ -556,11 +553,25 @@ const AdminLeaveManagement = () => {
     return leave?.employee_id || emp?.employee_id || 'N/A';
   }, [getEmployeeRecordForLeave]);
 
-  const departments = useMemo(() => {
-    const depts = new Set();
-    employees.forEach(emp => { if (emp.department) depts.add(emp.department); });
-    return Array.from(depts).sort();
-  }, [employees]);
+  // Fetch ALL existing departments from backend
+  const fetchDepartments = useCallback(async () => {
+    try {
+      const res = await api.get('/departments-list/');
+      const list = extractListData(res.data);
+      const names = list
+        .map(d => d?.name)
+        .filter(Boolean);
+      setDepartments(names.sort());
+    } catch (err) {
+      console.error('Error fetching departments:', err);
+      // fallback to empty; dropdown will still render with "All Departments"
+      setDepartments([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDepartments();
+  }, [fetchDepartments]);
 
   useEffect(() => {
     let next = Array.isArray(leaves) ? [...leaves] : [];
@@ -616,9 +627,7 @@ const AdminLeaveManagement = () => {
       if (employeeRecord) {
         setSelectedEmployeeDetails(employeeRecord);
       } else if (leave.employee) {
-        const res = await axios.get(`http://localhost:8000/api/employees/${leave.employee}/`, {
-          headers: { Authorization: `Bearer ${token()}` },
-        });
+        const res = await api.get(`/employees/${leave.employee}/`);
         setSelectedEmployeeDetails(res.data);
       }
     } catch (err) { console.error('Error fetching employee details:', err); }
@@ -636,10 +645,9 @@ const AdminLeaveManagement = () => {
     if (!selectedLeave) return;
     setActionLoading(true);
     try {
-      await axios.patch(`http://localhost:8000/api/leaves/${selectedLeave.id}/approve/`,
-        { status: 'APPROVED', comments: reviewComments },
-        { headers: { Authorization: `Bearer ${token()}` } }
-      );
+      await api.patch(`/leaves/${selectedLeave.id}/approve/`, {
+        status: 'APPROVED', comments: reviewComments,
+      });
       setLeaves((prev) => prev.map((l) => l.id === selectedLeave.id ? { ...l, status: 'APPROVED', comments: reviewComments } : l));
       showNotice('Leave approved successfully', 'success');
       closeLeaveModal();
@@ -652,10 +660,9 @@ const AdminLeaveManagement = () => {
     if (!selectedLeave) return;
     setActionLoading(true);
     try {
-      await axios.patch(`http://localhost:8000/api/leaves/${selectedLeave.id}/approve/`,
-        { status: 'REJECTED', comments: reviewComments },
-        { headers: { Authorization: `Bearer ${token()}` } }
-      );
+      await api.patch(`/leaves/${selectedLeave.id}/approve/`, {
+        status: 'REJECTED', comments: reviewComments,
+      });
       setLeaves((prev) => prev.map((l) => l.id === selectedLeave.id ? { ...l, status: 'REJECTED', comments: reviewComments } : l));
       showNotice('Leave rejected', 'success');
       closeLeaveModal();
@@ -667,9 +674,7 @@ const AdminLeaveManagement = () => {
   const handleDeleteLeave = async (leaveId) => {
     if (!window.confirm('Are you sure you want to delete this leave request?')) return;
     try {
-      await axios.delete(`http://localhost:8000/api/leaves/${leaveId}/delete/`, {
-        headers: { Authorization: `Bearer ${token()}` },
-      });
+      await api.delete(`/leaves/${leaveId}/delete/`);
       setLeaves((prev) => prev.filter((l) => l.id !== leaveId));
       showNotice('Leave request deleted successfully', 'success');
       closeLeaveModal();
@@ -680,9 +685,7 @@ const AdminLeaveManagement = () => {
 
   const handleUpdateLeaveBalance = async (employeeId, updatedData) => {
     try {
-      await axios.patch(`http://localhost:8000/api/employees/${employeeId}/`, updatedData, {
-        headers: { Authorization: `Bearer ${token()}` },
-      });
+      await api.patch(`/employees/${employeeId}/`, updatedData);
       fetchEmployees(true);
       setShowLeaveBalanceModal(false);
       setSelectedEmployee(null);
@@ -696,10 +699,9 @@ const AdminLeaveManagement = () => {
     try {
       for (const employee of employees) {
         const field = `${extraLeaveData.leave_type.toLowerCase()}_leave_balance`;
-        await axios.patch(`http://localhost:8000/api/employees/${employee.id}/`,
-          { [field]: (employee[field] || 0) + extraLeaveData.days },
-          { headers: { Authorization: `Bearer ${token()}` } }
-        );
+        await api.patch(`/employees/${employee.id}/`, {
+          [field]: (employee[field] || 0) + extraLeaveData.days,
+        });
       }
       fetchEmployees(true);
       setShowAddExtraLeaveModal(false);
@@ -1055,11 +1057,9 @@ const AdminLeaveManagement = () => {
                 {[
                   ['employee_name', 'Employee'],
                   ['employee_id', 'Emp ID'],
-                  ['department', 'Department'],
-                  ['leave_type_label', 'Leave Type'],
                   ['start_date', 'From'],
                   ['end_date', 'To'],
-                  ['total_days', 'Days'],
+                  ['leave_type_label', 'Leave Type'],
                   ['status', 'Status'],
                 ].map(([key, label]) => (
                   <th key={key} onClick={() => handleTableSort(key)} style={{
@@ -1077,14 +1077,14 @@ const AdminLeaveManagement = () => {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="8" style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', fontSize: '14px' }}>
+<tr><td colSpan="6" style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', fontSize: '14px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                     <div style={{ width: '32px', height: '32px', border: '3px solid #FED7AA', borderTop: '3px solid #F97316', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                     Loading leave requests…
                   </div>
                 </td></tr>
               ) : paginatedData.length === 0 ? (
-                <tr><td colSpan="8" style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', fontSize: '14px' }}>
+<tr><td colSpan="6" style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', fontSize: '14px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                     <span style={{ fontSize: '36px' }}>📭</span>
                     {leaves.length === 0 ? 'No leave requests found.' : 'No matching records found.'}
@@ -1123,24 +1123,10 @@ const AdminLeaveManagement = () => {
                     <td style={{ padding: '14px 16px' }}>
                       <span style={{ fontSize: '13px', fontWeight: '700', color: '#F97316', fontFamily: 'monospace' }}>{leave.employee_id}</span>
                     </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <span style={{
-                        backgroundColor: '#FFF7ED', color: '#EA580C',
-                        padding: '3px 10px', borderRadius: '20px',
-                        fontSize: '12px', fontWeight: '600', border: '1px solid #FED7AA',
-                      }}>{leave.department}</span>
-                    </td>
-                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#475569', fontWeight: '500' }}>
-                      {leave.leave_type_label || leave.leave_type}
-                    </td>
                     <td style={{ padding: '14px 16px', fontSize: '13px', color: '#64748B' }}>{leave.start_date || '—'}</td>
                     <td style={{ padding: '14px 16px', fontSize: '13px', color: '#64748B' }}>{leave.end_date || '—'}</td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <span style={{
-                        backgroundColor: '#F0FDF4', color: '#15803D',
-                        padding: '3px 10px', borderRadius: '20px',
-                        fontSize: '12px', fontWeight: '700', border: '1px solid #BBF7D0',
-                      }}>{leave.total_days}d</span>
+                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#475569', fontWeight: '500' }}>
+                      {leave.leave_type_label || leave.leave_type}
                     </td>
                     <td style={{ padding: '14px 16px' }}><StatusBadge status={leave.status} /></td>
                   </tr>
@@ -1222,7 +1208,7 @@ const AdminLeaveManagement = () => {
           <div style={{ textAlign: 'center', marginTop: '-36px', marginBottom: '20px', position: 'relative', zIndex: 1 }}>
             {selectedEmployeeDetails?.profile_image ? (
               <img
-                src={selectedEmployeeDetails.profile_image.startsWith('http') ? selectedEmployeeDetails.profile_image : `http://localhost:8000${selectedEmployeeDetails.profile_image}`}
+                src={selectedEmployeeDetails.profile_image.startsWith('http') ? selectedEmployeeDetails.profile_image : `${API_BASE_URL}${selectedEmployeeDetails.profile_image}`}
                 alt="Profile"
                 style={{ width: '72px', height: '72px', borderRadius: '50%', objectFit: 'cover', border: '4px solid white', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}
                 onError={e => e.target.style.display = 'none'}
@@ -1319,44 +1305,38 @@ const AdminLeaveManagement = () => {
               display: 'flex', gap: '10px', justifyContent: 'center',
               flexWrap: 'wrap', paddingTop: '8px', borderTop: '1.5px solid #F1F5F9',
             }}>
-              {selectedLeave.status === 'PENDING' ? (
-                <>
-                  <button onClick={closeLeaveModal} style={{
-                    padding: '10px 22px', backgroundColor: '#F8FAFC', color: '#475569',
-                    border: '1.5px solid #E2E8F0', borderRadius: '10px', cursor: 'pointer',
-                    fontWeight: '700', fontSize: '13px', marginTop: '8px',
-                  }}>Cancel</button>
-                  <button onClick={handleReject} disabled={actionLoading} style={{
-                    padding: '10px 22px', backgroundColor: '#FEF2F2', color: '#DC2626',
-                    border: '1.5px solid #FECACA', borderRadius: '10px', cursor: actionLoading ? 'not-allowed' : 'pointer',
-                    fontWeight: '700', fontSize: '13px', marginTop: '8px',
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                  }}>✕ {actionLoading ? 'Processing…' : 'Reject'}</button>
-                  <button onClick={handleApprove} disabled={actionLoading} style={{
-                    padding: '10px 22px',
-                    background: actionLoading ? '#CBD5E1' : 'linear-gradient(135deg, #16A34A, #15803D)',
-                    color: 'white', border: 'none', borderRadius: '10px',
-                    cursor: actionLoading ? 'not-allowed' : 'pointer',
-                    fontWeight: '700', fontSize: '13px', marginTop: '8px',
-                    boxShadow: actionLoading ? 'none' : '0 4px 12px rgba(22,163,74,0.3)',
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                  }}>✔ {actionLoading ? 'Processing…' : 'Approve'}</button>
-                </>
-              ) : (
-                <>
-                  <button onClick={() => handleDeleteLeave(selectedLeave.id)} style={{
-                    padding: '10px 22px', backgroundColor: '#FEF2F2', color: '#DC2626',
-                    border: '1.5px solid #FECACA', borderRadius: '10px', cursor: 'pointer',
-                    fontWeight: '700', fontSize: '13px', marginTop: '8px',
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                  }}>🗑️ Delete</button>
-                  <button onClick={closeLeaveModal} style={{
-                    padding: '10px 22px', backgroundColor: '#F8FAFC', color: '#475569',
-                    border: '1.5px solid #E2E8F0', borderRadius: '10px', cursor: 'pointer',
-                    fontWeight: '700', fontSize: '13px', marginTop: '8px',
-                  }}>Close</button>
-                </>
-              )}
+              <>
+                <button onClick={closeLeaveModal} style={{
+                  padding: '10px 22px', backgroundColor: '#F8FAFC', color: '#475569',
+                  border: '1.5px solid #E2E8F0', borderRadius: '10px', cursor: 'pointer',
+                  fontWeight: '700', fontSize: '13px', marginTop: '8px',
+                }}>Cancel</button>
+                {selectedLeave.status === 'PENDING' && (
+                  <>
+                    <button onClick={handleReject} disabled={actionLoading} style={{
+                      padding: '10px 22px', backgroundColor: '#FEF2F2', color: '#DC2626',
+                      border: '1.5px solid #FECACA', borderRadius: '10px', cursor: actionLoading ? 'not-allowed' : 'pointer',
+                      fontWeight: '700', fontSize: '13px', marginTop: '8px',
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                    }}>✕ {actionLoading ? 'Processing…' : 'Reject'}</button>
+                    <button onClick={handleApprove} disabled={actionLoading} style={{
+                      padding: '10px 22px',
+                      background: actionLoading ? '#CBD5E1' : 'linear-gradient(135deg, #16A34A, #15803D)',
+                      color: 'white', border: 'none', borderRadius: '10px',
+                      cursor: actionLoading ? 'not-allowed' : 'pointer',
+                      fontWeight: '700', fontSize: '13px', marginTop: '8px',
+                      boxShadow: actionLoading ? 'none' : '0 4px 12px rgba(22,163,74,0.3)',
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                    }}>✔ {actionLoading ? 'Processing…' : 'Approve'}</button>
+                  </>
+                )}
+                <button onClick={() => handleDeleteLeave(selectedLeave.id)} style={{
+                  padding: '10px 22px', backgroundColor: '#FEF2F2', color: '#DC2626',
+                  border: '1.5px solid #FECACA', borderRadius: '10px', cursor: 'pointer',
+                  fontWeight: '700', fontSize: '13px', marginTop: '8px',
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                }}>🗑️ Delete</button>
+              </>
             </div>
           </div>
         </ModalOverlay>

@@ -1,816 +1,354 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import AdminLeaveManagement from './AdminLeaveManagement';
+import api from '../utils/axiosConfig';
 import { extractListData } from '../utils/extractListData';
+import AdminLeaveManagement from './AdminLeaveManagement';
+import HolidayCalendar from '../components/HolidayCalendar';
+import AdminAttendance from './admin/AdminAttendance';
+import AdminAnnouncements from './AdminAnnouncements';
+import AnnouncementDetail from './AnnouncementDetail';
+import HRReports from './admin/HRReports';
 
-// ─── Utility helpers ────────────────────────────────────────────────────────
-const formatDate = (dateStr) => {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('en-IN', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+/* ─── Design Tokens (mirrors AdminDashboard) ──────────────────────────
+   Primary     : #F97316  orange-500
+   Primary Dark: #EA580C  orange-600
+   Primary Light:#FFF7ED  orange-50
+   Accent      : #16A34A  green-600
+   Neutral BG  : #F8FAFC
+   Surface     : #FFFFFF
+   Border      : #E2E8F0 / #F1F5F9
+   Text Main   : #0F172A
+   Text Muted  : #64748B
+   ─────────────────────────────────────────────────────────────────── */
+
+const leaveTypeLabels = {
+  SICK: 'Sick Leave', CASUAL: 'Casual Leave', PAID: 'Paid Leave',
+  MATERNITY: 'Maternity Leave', PATERNITY: 'Paternity Leave', MARRIAGE: 'Marriage Leave',
 };
 
-const downloadCSV = (data, filename) => {
-  if (!data || data.length === 0) return;
-  const keys = Object.keys(data[0]);
-  const csv = [keys.join(','), ...data.map(row => keys.map(k => `"${row[k] ?? ''}"`).join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `${filename}.csv`; a.click();
-  URL.revokeObjectURL(url);
-};
-
-// ─── HR Reports Component ────────────────────────────────────────────────────
-const ManagerHRReports = ({ user }) => {
-  const [loading, setLoading] = useState(false);
-  const [reportData, setReportData] = useState([]);
-  const [summary, setSummary] = useState({});
-  const [employees, setEmployees] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [dateMode, setDateMode] = useState('single');
-  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
-  const [employeeSearch, setEmployeeSearch] = useState('');
-  const [selectedDateDetail, setSelectedDateDetail] = useState(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [filtersExpanded, setFiltersExpanded] = useState(true);
-
-  const [filters, setFilters] = useState({
-    reportType: 'attendance',
-    scope: 'all',
-    employeeId: '',
-    department: 'all',
-    singleDate: new Date().toISOString().split('T')[0],
-    startDate: new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
-    frequency: 'daily',
-  });
-
-  const reportTypes = [
-    { value: 'attendance', label: 'Attendance',       icon: '📅', color: '#3B82F6' },
-    { value: 'leave',      label: 'Leave',            icon: '📝', color: '#F59E0B' },
-    { value: 'employee',   label: 'Employee Activity',icon: '👥', color: '#8B5CF6' },
-    { value: 'salary',     label: 'Salary',           icon: '💰', color: '#10B981' },
-  ];
-
-  const presetRanges = [
-    { value: 'today',     label: 'Today',        getRange: () => { const t = new Date().toISOString().split('T')[0]; return { startDate: t, endDate: t }; } },
-    { value: 'yesterday', label: 'Yesterday',    getRange: () => { const d = new Date(); d.setDate(d.getDate()-1); const s = d.toISOString().split('T')[0]; return { startDate: s, endDate: s }; } },
-    { value: 'week',      label: 'Last 7 Days',  getRange: () => { const e = new Date().toISOString().split('T')[0]; const s = new Date(); s.setDate(s.getDate()-7); return { startDate: s.toISOString().split('T')[0], endDate: e }; } },
-    { value: 'month',     label: 'Last 30 Days', getRange: () => { const e = new Date().toISOString().split('T')[0]; const s = new Date(); s.setDate(s.getDate()-30); return { startDate: s.toISOString().split('T')[0], endDate: e }; } },
-    { value: 'thisMonth', label: 'This Month',   getRange: () => { const t = new Date(); const s = new Date(t.getFullYear(), t.getMonth(), 1); return { startDate: s.toISOString().split('T')[0], endDate: t.toISOString().split('T')[0] }; } },
-  ];
-
-  useEffect(() => { fetchMeta(); }, []);
-  useEffect(() => { generateReport(); }, [filters, dateMode]);
-
-  const fetchMeta = async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      const [empRes, deptRes] = await Promise.all([
-        axios.get('/employees/', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('/departments/list/', { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
-      setEmployees(extractListData(empRes.data));
-      setDepartments(deptRes.data || []);
-    } catch (e) { console.error(e); }
-  };
-
-  const generateReport = async () => {
-    setLoading(true);
-    try {
-      const endpoints = { attendance: '/reports/attendance/', leave: '/reports/leaves/', employee: '/reports/employees/', salary: '/reports/salary/' };
-      const params = {
-        report_type: filters.reportType,
-        scope: filters.scope,
-        department: filters.department !== 'all' ? filters.department : null,
-        frequency: filters.frequency,
-        date_mode: dateMode,
-        ...(dateMode === 'single' ? { date: filters.singleDate } : { start_date: filters.startDate, end_date: filters.endDate }),
-        ...(filters.scope === 'individual' && filters.employeeId ? { employee_id: filters.employeeId } : {}),
-      };
-      const token = localStorage.getItem('access_token');
-      const res = await axios.get(endpoints[filters.reportType] || '/reports/attendance/', {
-        params, headers: { Authorization: `Bearer ${token}` }
-      });
-      setReportData(res.data.data || []);
-      setSummary(res.data.summary || {});
-    } catch (e) {
-      setReportData([]); setSummary({});
-    } finally { setLoading(false); }
-  };
-
-  const handlePreset = (val) => {
-    const preset = presetRanges.find(p => p.value === val);
-    if (preset) { const r = preset.getRange(); setFilters(f => ({ ...f, ...r })); }
-  };
-
-  const filteredEmployees = employees.filter(emp => {
-    const s = employeeSearch.toLowerCase();
-    return emp.first_name?.toLowerCase().includes(s) || emp.last_name?.toLowerCase().includes(s) || emp.employee_id?.toLowerCase().includes(s);
-  });
-
-  const selectedEmployee = employees.find(emp => emp.id === parseInt(filters.employeeId));
-  const activeReportType = reportTypes.find(r => r.value === filters.reportType);
-
-  const StatusBadge = ({ status }) => {
-    const map = {
-      Present:    { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
-      Absent:     { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
-      'On Leave': { bg: '#FFFBEB', color: '#B45309', border: '#FDE68A' },
-      APPROVED:   { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
-      REJECTED:   { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
-      PENDING:    { bg: '#FFFBEB', color: '#B45309', border: '#FDE68A' },
-      PAID:       { bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
-      Excellent:  { bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
-      Good:       { bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE' },
-      Average:    { bg: '#FFFBEB', color: '#B45309', border: '#FDE68A' },
-      Poor:       { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
-    };
-    const sc = map[status] || map.PENDING;
-    return (
-      <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600' }}>
-        {status}
-      </span>
-    );
-  };
-
-  const thStyle = { padding: '11px 16px', textAlign: 'left', color: '#666', fontSize: '12px', fontWeight: '600', borderBottom: '1px solid #e5e7eb', background: '#f9fafb', whiteSpace: 'nowrap' };
-  const tdStyle = { padding: '12px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' };
-
-  const renderTable = (rows) => {
-    if (!rows || rows.length === 0) return (
-      <div style={{ textAlign: 'center', padding: '48px', color: '#9ca3af' }}>
-        <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
-        <div style={{ fontSize: '14px', fontWeight: '500' }}>No records found</div>
-      </div>
-    );
-
-    if (filters.reportType === 'attendance') return (
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr>{['Employee','ID','Department','Status','Login','Logout','Hours'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-        <tbody>{rows.map((item, i) => (
-          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}
-            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fff3e0'}
-            onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#fff' : '#fafafa'}>
-            <td style={{ ...tdStyle, fontWeight: '600', color: '#111' }}>{item.employee_name}</td>
-            <td style={tdStyle}><code style={{ fontSize: '12px', color: '#9ca3af' }}>{item.employee_id}</code></td>
-            <td style={tdStyle}><span style={{ background: '#fff3e0', color: '#ea580c', border: '1px solid #fed7aa', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '600' }}>{item.department}</span></td>
-            <td style={tdStyle}><StatusBadge status={item.status} /></td>
-            <td style={tdStyle}>{item.login_time || '—'}</td>
-            <td style={tdStyle}>{item.logout_time || '—'}</td>
-            <td style={{ ...tdStyle, fontWeight: '600' }}>{item.working_hours || '—'}</td>
-          </tr>
-        ))}</tbody>
-      </table>
-    );
-
-    if (filters.reportType === 'leave') return (
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr>{['Employee','ID','Department','Leave Type','Start','End','Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-        <tbody>{rows.map((item, i) => (
-          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}
-            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fff3e0'}
-            onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#fff' : '#fafafa'}>
-            <td style={{ ...tdStyle, fontWeight: '600', color: '#111' }}>{item.employee_name}</td>
-            <td style={tdStyle}><code style={{ fontSize: '12px', color: '#9ca3af' }}>{item.employee_id}</code></td>
-            <td style={tdStyle}><span style={{ background: '#fff3e0', color: '#ea580c', border: '1px solid #fed7aa', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '600' }}>{item.department}</span></td>
-            <td style={tdStyle}><span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '600' }}>{item.leave_type}</span></td>
-            <td style={tdStyle}>{item.start_date || '—'}</td>
-            <td style={tdStyle}>{item.end_date || '—'}</td>
-            <td style={tdStyle}><StatusBadge status={item.status} /></td>
-          </tr>
-        ))}</tbody>
-      </table>
-    );
-
-    if (filters.reportType === 'employee') return (
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr>{['Employee','ID','Department','Designation','Joining Date','Tenure','Leaves','Performance','Salary'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-        <tbody>{rows.map((item, i) => (
-          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}
-            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fff3e0'}
-            onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#fff' : '#fafafa'}>
-            <td style={{ ...tdStyle, fontWeight: '600', color: '#111' }}>{item.employee_name}</td>
-            <td style={tdStyle}><code style={{ fontSize: '12px', color: '#9ca3af' }}>{item.employee_id}</code></td>
-            <td style={tdStyle}><span style={{ background: '#fff3e0', color: '#ea580c', border: '1px solid #fed7aa', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '600' }}>{item.department}</span></td>
-            <td style={tdStyle}>{item.designation || '—'}</td>
-            <td style={tdStyle}>{item.joining_date ? new Date(item.joining_date).toLocaleDateString('en-IN') : '—'}</td>
-            <td style={tdStyle}>{item.tenure_years ? `${item.tenure_years}y` : '—'}</td>
-            <td style={{ ...tdStyle, fontWeight: '700', color: '#f97316' }}>{item.leaves_taken ?? 0}</td>
-            <td style={tdStyle}><StatusBadge status={item.performance_rating || 'Average'} /></td>
-            <td style={{ ...tdStyle, fontWeight: '700' }}>₹{(item.last_salary || 0).toLocaleString('en-IN')}</td>
-          </tr>
-        ))}</tbody>
-      </table>
-    );
-
-    if (filters.reportType === 'salary') return (
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr>{['Employee','ID','Department','Basic','Gross','Deductions','Net Salary','Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-        <tbody>{rows.map((item, i) => (
-          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}
-            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fff3e0'}
-            onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? '#fff' : '#fafafa'}>
-            <td style={{ ...tdStyle, fontWeight: '600', color: '#111' }}>{item.employee_name}</td>
-            <td style={tdStyle}><code style={{ fontSize: '12px', color: '#9ca3af' }}>{item.employee_id}</code></td>
-            <td style={tdStyle}><span style={{ background: '#fff3e0', color: '#ea580c', border: '1px solid #fed7aa', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '600' }}>{item.department}</span></td>
-            <td style={tdStyle}>₹{(item.basic_salary || 0).toLocaleString('en-IN')}</td>
-            <td style={tdStyle}>₹{(item.gross_salary || 0).toLocaleString('en-IN')}</td>
-            <td style={{ ...tdStyle, color: '#ef4444', fontWeight: '600' }}>₹{(item.total_deductions || 0).toLocaleString('en-IN')}</td>
-            <td style={{ ...tdStyle, fontWeight: '800' }}>₹{(item.net_salary || 0).toLocaleString('en-IN')}</td>
-            <td style={tdStyle}><StatusBadge status={item.payment_status} /></td>
-          </tr>
-        ))}</tbody>
-      </table>
-    );
-
-    return null;
-  };
-
-  const renderSummary = () => {
-    const cardStyle = (color) => ({ textAlign: 'center', padding: '16px', borderRadius: '12px', background: 'white', border: '1px solid #e5e7eb', flex: 1, minWidth: '100px', borderTop: `3px solid ${color}` });
-
-    if (filters.reportType === 'attendance') return (
-      <div style={{ display: 'flex', gap: '12px', padding: '20px 24px', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
-        {[
-          { label: 'Total Employees', value: summary.total_employees ?? 0, color: '#f97316' },
-          { label: 'Present', value: summary.present ?? 0, color: '#10b981' },
-          { label: 'Absent', value: summary.absent ?? 0, color: '#ef4444' },
-          { label: 'On Leave', value: summary.on_leave ?? 0, color: '#f59e0b' },
-          ...(summary.attendance_rate !== undefined ? [{ label: 'Attendance %', value: `${summary.attendance_rate}%`, color: '#3b82f6' }] : []),
-        ].map(s => (
-          <div key={s.label} style={cardStyle(s.color)}>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: '11px', color: '#666', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.4px', marginTop: '4px' }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-    );
-
-    if (filters.reportType === 'leave') return (
-      <div style={{ display: 'flex', gap: '12px', padding: '20px 24px', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
-        {[
-          { label: 'Total Requests', value: summary.total_requests ?? reportData.length, color: '#f97316' },
-          { label: 'Approved', value: summary.approved ?? 0, color: '#10b981' },
-          { label: 'Pending', value: summary.pending ?? 0, color: '#f59e0b' },
-          { label: 'Rejected', value: summary.rejected ?? 0, color: '#ef4444' },
-        ].map(s => (
-          <div key={s.label} style={cardStyle(s.color)}>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: '11px', color: '#666', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.4px', marginTop: '4px' }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-    );
-
-    if (filters.reportType === 'employee') return (
-      <div style={{ display: 'flex', gap: '12px', padding: '20px 24px', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
-        {[
-          { label: 'Total', value: summary.total_employees ?? reportData.length, color: '#f97316' },
-          { label: 'Active', value: summary.active_employees ?? 0, color: '#10b981' },
-          { label: 'New Joins', value: summary.new_joins ?? 0, color: '#3b82f6' },
-          { label: 'Top Performers', value: summary.excellent_performers ?? 0, color: '#8b5cf6' },
-        ].map(s => (
-          <div key={s.label} style={cardStyle(s.color)}>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: '11px', color: '#666', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.4px', marginTop: '4px' }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-    );
-
-    if (filters.reportType === 'salary') return (
-      <div style={{ display: 'flex', gap: '12px', padding: '20px 24px', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
-        {[
-          { label: 'Employees', value: summary.total_employees ?? reportData.length, color: '#f97316' },
-          { label: 'Total Net', value: `₹${(summary.total_net_salary || 0).toLocaleString('en-IN')}`, color: '#10b981' },
-          { label: 'Avg Net', value: `₹${(summary.average_net_salary || 0).toLocaleString('en-IN')}`, color: '#3b82f6' },
-          { label: 'Paid', value: summary.paid_salaries ?? 0, color: '#8b5cf6' },
-        ].map(s => (
-          <div key={s.label} style={cardStyle(s.color)}>
-            <div style={{ fontSize: '20px', fontWeight: '800', color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: '11px', color: '#666', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.4px', marginTop: '4px' }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-    );
-
-    return null;
-  };
-
-  const renderDateGroups = () => reportData.map((group, idx) => (
-    <div key={idx} style={{ background: 'white', borderRadius: '12px', marginBottom: '16px', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 20px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
-        <span>📅</span>
-        <span style={{ fontSize: '14px', fontWeight: '600', color: '#111', flex: 1 }}>{formatDate(group.date)}</span>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {[
-            { label: 'Present',  value: group.present,   color: '#10b981' },
-            { label: 'Absent',   value: group.absent,    color: '#ef4444' },
-            { label: 'On Leave', value: group.on_leave,  color: '#f59e0b' },
-            { label: 'Att. %',   value: `${group.attendance_percentage || 0}%`, color: '#8b5cf6' },
-          ].map(s => (
-            <div key={s.label} style={{ textAlign: 'center', minWidth: '44px' }}>
-              <div style={{ fontSize: '15px', fontWeight: '700', color: s.color }}>{s.value ?? 0}</div>
-              <div style={{ fontSize: '10px', color: '#9ca3af', fontWeight: '500', textTransform: 'uppercase' }}>{s.label}</div>
-            </div>
-          ))}
-          <button onClick={() => { setSelectedDateDetail({ date: group.date, details: group.employees || [] }); setShowDetailModal(true); }}
-            style={{ padding: '6px 12px', background: '#fff3e0', border: '1px solid #fed7aa', color: '#ea580c', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
-            👁 Details
-          </button>
-        </div>
-      </div>
-      {group.employees && group.employees.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>{['Employee','ID','Status','Login – Logout'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
-            <tbody>
-              {group.employees.slice(0, 5).map((emp, ei) => (
-                <tr key={ei} style={{ backgroundColor: ei % 2 === 0 ? '#fff' : '#fafafa' }}>
-                  <td style={{ ...tdStyle, fontWeight: '600', color: '#111' }}>{emp.employee_name}</td>
-                  <td style={tdStyle}><code style={{ fontSize: '12px', color: '#9ca3af' }}>{emp.employee_id}</code></td>
-                  <td style={tdStyle}><StatusBadge status={emp.status} /></td>
-                  <td style={tdStyle}>{emp.login_time || emp.logout_time ? `${emp.login_time || '—'} → ${emp.logout_time || '—'}` : '—'}</td>
-                </tr>
-              ))}
-              {group.employees.length > 5 && (
-                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '10px', fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>
-                  +{group.employees.length - 5} more employees
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  ));
-
-  const inputStyle = { width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', background: 'white', color: '#111', boxSizing: 'border-box', fontFamily: 'inherit' };
-  const labelStyle = { display: 'block', fontSize: '12px', fontWeight: '600', color: '#374141', marginBottom: '6px' };
-
+const StatusBadge = ({ status }) => {
+  const cfg = {
+    PENDING:  { bg: '#FFFBEB', color: '#92400E', border: '#FDE68A' },
+    APPROVED: { bg: '#F0FDF4', color: '#166534', border: '#BBF7D0' },
+    REJECTED: { bg: '#FEF2F2', color: '#991B1B', border: '#FECACA' },
+  }[status?.toUpperCase()] || { bg: '#F8FAFC', color: '#475569', border: '#E2E8F0' };
   return (
-    <div style={{ padding: '24px' }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
-      {/* Header */}
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ fontSize: '22px', fontWeight: '700', margin: '0 0 4px 0', color: '#1a1a1a' }}>📊 Reports & Analytics</h1>
-          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>Analyze your team's performance and attendance data</p>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => downloadCSV(reportData, `${filters.reportType}_report`)}
-            style={{ padding: '9px 16px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
-            ⬇ Export CSV
-          </button>
-          <button onClick={() => window.print()}
-            style={{ padding: '9px 16px', background: 'white', color: '#666', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
-            🖨 Print
-          </button>
-        </div>
-      </div>
-
-      {/* Report Type Tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        {reportTypes.map(rt => (
-          <button key={rt.value}
-            onClick={() => setFilters(f => ({ ...f, reportType: rt.value }))}
-            style={{
-              padding: '9px 18px', borderRadius: '8px', fontSize: '13px', fontWeight: '500',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-              border: filters.reportType === rt.value ? `1.5px solid ${rt.color}` : '1px solid #e5e7eb',
-              background: filters.reportType === rt.value ? `${rt.color}15` : 'white',
-              color: filters.reportType === rt.value ? rt.color : '#666',
-              transition: 'all 0.2s',
-            }}>
-            {rt.icon} {rt.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Filters Card */}
-      <div style={{ background: 'white', borderRadius: '12px', marginBottom: '16px', border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-        <div style={{ padding: '14px 20px', borderBottom: filtersExpanded ? '1px solid #e5e7eb' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-          onClick={() => setFiltersExpanded(f => !f)}>
-          <span style={{ fontSize: '14px', fontWeight: '600', color: '#111', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            🔽 Filters & Date Selection
-          </span>
-          <span style={{ fontSize: '12px', color: '#9ca3af' }}>
-            {activeReportType?.label} · {dateMode === 'single' ? formatDate(filters.singleDate) : `${filters.startDate} → ${filters.endDate}`}
-          </span>
-        </div>
-
-        {filtersExpanded && (
-          <div style={{ padding: '20px' }}>
-            {/* Row 1: Scope + Employee + Department */}
-            <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: '160px' }}>
-                <label style={labelStyle}>👥 Scope</label>
-                <select value={filters.scope}
-                  onChange={e => setFilters(f => ({ ...f, scope: e.target.value, employeeId: '' }))}
-                  style={inputStyle}>
-                  <option value="all">All Employees</option>
-                  <option value="individual">Specific Employee</option>
-                </select>
-              </div>
-
-              {filters.scope === 'individual' && (
-                <div style={{ flex: 1, minWidth: '200px', position: 'relative' }}>
-                  <label style={labelStyle}>🧑 Employee</label>
-                  <div onClick={() => setShowEmployeeDropdown(v => !v)}
-                    style={{ ...inputStyle, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: selectedEmployee ? '#111' : '#9ca3af' }}>
-                      {selectedEmployee ? `${selectedEmployee.first_name} ${selectedEmployee.last_name}` : 'Select Employee'}
-                    </span>
-                    <span>▾</span>
-                  </div>
-                  {showEmployeeDropdown && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', background: 'white', border: '1px solid #e5e7eb', borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 20, overflow: 'hidden' }}>
-                      <div style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>🔍</span>
-                        <input autoFocus value={employeeSearch} onChange={e => setEmployeeSearch(e.target.value)}
-                          placeholder="Search…"
-                          style={{ border: 'none', outline: 'none', fontSize: '13px', flex: 1, fontFamily: 'inherit' }} />
-                      </div>
-                      <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                        {filteredEmployees.map(emp => (
-                          <div key={emp.id}
-                            onClick={() => { setFilters(f => ({ ...f, employeeId: emp.id })); setShowEmployeeDropdown(false); setEmployeeSearch(''); }}
-                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', cursor: 'pointer' }}
-                            onMouseEnter={e => e.currentTarget.style.background = '#fff3e0'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'white'}>
-                            <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#f97316', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700', flexShrink: 0 }}>
-                              {emp.first_name?.charAt(0)}{emp.last_name?.charAt(0)}
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '13px', fontWeight: '600', color: '#111' }}>{emp.first_name} {emp.last_name}</div>
-                              <div style={{ fontSize: '11px', color: '#9ca3af' }}>{emp.department} · {emp.employee_id}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Row 2: Date Mode */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={labelStyle}>📅 Date Mode</label>
-              <div style={{ display: 'inline-flex', background: '#f3f4f6', borderRadius: '8px', padding: '3px', gap: '3px' }}>
-                {[{ key: 'single', label: 'Single Day' }, { key: 'range', label: 'Date Range' }].map(m => (
-                  <button key={m.key} onClick={() => setDateMode(m.key)}
-                    style={{ padding: '7px 16px', borderRadius: '6px', border: 'none', background: dateMode === m.key ? 'white' : 'transparent', color: dateMode === m.key ? '#f97316' : '#666', fontSize: '13px', fontWeight: dateMode === m.key ? '600' : '400', cursor: 'pointer', boxShadow: dateMode === m.key ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}>
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Row 3: Date Inputs */}
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '20px' }}>
-              {dateMode === 'single' ? (
-                <div style={{ flex: '0 0 240px' }}>
-                  <label style={labelStyle}>Select Date</label>
-                  <input type="date" value={filters.singleDate}
-                    onChange={e => setFilters(f => ({ ...f, singleDate: e.target.value }))}
-                    style={inputStyle} />
-                </div>
-              ) : (
-                <>
-                  <div style={{ flex: '0 0 170px' }}>
-                    <label style={labelStyle}>From</label>
-                    <input type="date" value={filters.startDate}
-                      onChange={e => setFilters(f => ({ ...f, startDate: e.target.value }))}
-                      style={inputStyle} />
-                  </div>
-                  <div style={{ flex: '0 0 170px' }}>
-                    <label style={labelStyle}>To</label>
-                    <input type="date" value={filters.endDate}
-                      onChange={e => setFilters(f => ({ ...f, endDate: e.target.value }))}
-                      style={inputStyle} />
-                  </div>
-                  <div style={{ flex: '0 0 150px' }}>
-                    <label style={labelStyle}>Quick Preset</label>
-                    <select defaultValue="" onChange={e => handlePreset(e.target.value)} style={inputStyle}>
-                      <option value="" disabled>Select…</option>
-                      {presetRanges.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ flex: '0 0 130px' }}>
-                    <label style={labelStyle}>Frequency</label>
-                    <select value={filters.frequency}
-                      onChange={e => setFilters(f => ({ ...f, frequency: e.target.value }))}
-                      style={inputStyle}>
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                      <option value="monthly">Monthly</option>
-                    </select>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <button onClick={generateReport} disabled={loading}
-              style={{ padding: '10px 28px', background: loading ? '#d1d5db' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {loading ? (
-                <><span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /> Generating…</>
-              ) : '✔ Generate Report'}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Results Panel */}
-      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f9fafb' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>{activeReportType?.icon}</span>
-            <span style={{ fontSize: '14px', fontWeight: '600', color: '#111' }}>{activeReportType?.label} Report</span>
-            {!loading && <span style={{ background: '#e5e7eb', color: '#666', padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600' }}>{reportData.length} records</span>}
-          </div>
-          <span style={{ fontSize: '12px', color: '#9ca3af' }}>
-            {dateMode === 'single' ? formatDate(filters.singleDate) : `${filters.startDate} → ${filters.endDate}`}
-          </span>
-        </div>
-
-        {loading ? (
-          <div style={{ padding: '64px', textAlign: 'center', color: '#9ca3af' }}>
-            <div style={{ width: '32px', height: '32px', margin: '0 auto 12px', border: '3px solid #f3f3f3', borderTop: '3px solid #f97316', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <span style={{ fontSize: '14px', fontWeight: '500' }}>Loading report data…</span>
-          </div>
-        ) : reportData.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '64px 20px', color: '#9ca3af' }}>
-            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📊</div>
-            <div style={{ fontSize: '15px', fontWeight: '600', color: '#374151', marginBottom: '4px' }}>No data available</div>
-            <div style={{ fontSize: '13px' }}>Try adjusting your date range or filters, then click Generate Report.</div>
-          </div>
-        ) : (
-          <>
-            {renderSummary()}
-            {dateMode === 'range' && filters.reportType === 'attendance' ? (
-              <div style={{ padding: '20px' }}>{renderDateGroups()}</div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>{renderTable(reportData)}</div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Detail Modal */}
-      {showDetailModal && selectedDateDetail && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}
-          onClick={() => setShowDetailModal(false)}>
-          <div style={{ background: 'white', borderRadius: '16px', width: '700px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.2)' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '18px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: '15px', fontWeight: '700', color: '#111' }}>📅 Day Detail</div>
-                <div style={{ fontSize: '12px', color: '#666' }}>{formatDate(selectedDateDetail.date)}</div>
-              </div>
-              <button onClick={() => setShowDetailModal(false)}
-                style={{ width: '30px', height: '30px', borderRadius: '6px', border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontSize: '16px', color: '#666' }}>✕</button>
-            </div>
-            <div style={{ overflowY: 'auto', flex: 1 }}>
-              {selectedDateDetail.details.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', fontSize: '13px' }}>No detail records.</div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr style={{ position: 'sticky', top: 0 }}>
-                    {['Employee','ID','Department','Status','Login – Logout'].map(h => <th key={h} style={thStyle}>{h}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {selectedDateDetail.details.map((item, i) => (
-                      <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                        <td style={{ ...tdStyle, fontWeight: '600', color: '#111' }}>{item.employee_name}</td>
-                        <td style={tdStyle}><code style={{ fontSize: '12px', color: '#9ca3af' }}>{item.employee_id}</code></td>
-                        <td style={tdStyle}>{item.department}</td>
-                        <td style={tdStyle}><StatusBadge status={item.status} /></td>
-                        <td style={tdStyle}>{item.login_time && item.logout_time ? `${item.login_time} → ${item.logout_time}` : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+      backgroundColor: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
+      textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+      {status?.charAt(0) + (status?.slice(1).toLowerCase() || '')}
+    </span>
   );
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  MAIN DASHBOARD COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
 const ManagerAdminDashboard = ({ user, setUser, activePage }) => {
   const navigate = useNavigate();
 
-  const [activeSection, setActiveSection] = useState(() => activePage || 'dashboard');
-  const [managerProfile, setManagerProfile] = useState(null);
-  const [profileLoading, setProfileLoading] = useState(false);
+  const [activeSection, setActiveSection]     = useState(() => activePage || 'dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [managerProfile, setManagerProfile]   = useState(null);
+  const [notification, setNotification]       = useState(null);
+  const [loading, setLoading]                 = useState(false);
+  const [error, setError]                    = useState('');
+
   const [stats, setStats] = useState({
-    totalEmployees: 0,
-    departments: 1,
-    pendingLeaves: 0,
-    attendanceRate: 95.2,
-    totalLeavesTaken: 0,
+    totalEmployees: 0, pendingLeaves: 0, attendanceRate: 95.2, totalLeaves: 0,
   });
-  const [statsLoading, setStatsLoading] = useState(false);
-  const [teamMembers, setTeamMembers] = useState([]);
+  const [teamMembers, setTeamMembers]   = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const cancelRef = useRef(null);
 
+
   const menuItems = [
-    { name: 'Dashboard',           icon: '📊', section: 'dashboard' },
-    { name: 'Team Members',        icon: '👥', section: 'team-members' },
-    { name: 'Leave Management',    icon: '📝', section: 'leave-management' },
-    { name: 'Attendance',          icon: '📅', section: 'attendance' },
-    { name: 'Reports & Analytics', icon: '📈', section: 'reports' },
-    { name: 'Profile',             icon: '👤', section: 'profile' },
+    { name: 'Dashboard',        icon: '\u{1F4CA}', section: 'dashboard' },
+    { name: 'Team Members',     icon: '\u{1F465}', section: 'team-members' },
+    { name: 'Leave Management', icon: '\u{1F4DD}', section: 'leave-management' },
+    { name: 'Attendance',       icon: '\u{1F4C5}', section: 'attendance' },
+    { name: 'Reports',          icon: '\u{1F4C8}', section: 'reports' },
+    { name: 'Announcements',    icon: '\u{1F4E2}', section: 'announcements' },
+    { name: 'Holiday Calendar', icon: '\u{1F5D3}', section: 'holidays' },
+    { name: 'My Profile',       icon: '\u{1F464}', section: 'profile' },
   ];
 
-  // ─── Data fetching ───────────────────────────────────────────────────────
-  const fetchManagerProfileData = useCallback(async () => {
-    setProfileLoading(true);
-    try {
-      const token = localStorage.getItem('access_token');
-      const res = await axios.get('/employees/me/', { headers: { Authorization: `Bearer ${token}` } });
-      setManagerProfile(res.data);
-    } catch (e) { console.error(e); }
-    finally { setProfileLoading(false); }
-  }, []);
+  const showNotif = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
 
-  const fetchManagerStats = useCallback(async () => {
+  /* ── Fetch all dashboard data ─────────────────────────────────── */
+  const fetchDashboardData = useCallback(async () => {
     if (cancelRef.current) cancelRef.current.abort();
     cancelRef.current = new AbortController();
-    setStatsLoading(true);
+    setLoading(true);
+    setError('');
+
     try {
-      const token = localStorage.getItem('access_token');
-      const [statsRes, teamRes, leavesRes] = await Promise.all([
-        axios.get('/dashboard-stats/',     { headers: { Authorization: `Bearer ${token}` }, signal: cancelRef.current.signal }),
-        axios.get('/department-employees/', { params: { page: 1, limit: 10 }, headers: { Authorization: `Bearer ${token}` }, signal: cancelRef.current.signal }),
-        axios.get('/manager-leaves/',      { params: { page: 1, limit: 10 }, headers: { Authorization: `Bearer ${token}` }, signal: cancelRef.current.signal }),
+      const signal = cancelRef.current.signal;
+      const [statsRes, teamRes, leavesRes, annRes] = await Promise.all([
+        api.get('/dashboard-stats/', { signal }),
+        api.get('/department-employees/?limit=100', { signal }),
+        api.get('/manager-leaves/?limit=10', { signal }),
+        api.get('/announcements/', { signal }),
       ]);
-      const bs = statsRes.data;
-      const teamList  = extractListData(teamRes.data);
-      const leaveList = extractListData(leavesRes.data);
+
+      const s = statsRes?.data || {};
       setStats({
-        totalEmployees:   bs.total_employees   || teamList.length,
-        departments:      bs.unique_departments || 1,
-        pendingLeaves:    bs.pending_leaves    || 0,
-        attendanceRate:   bs.attendance_rate   || 95.2,
-        totalLeavesTaken: bs.total_leaves      || leaveList.length,
+        totalEmployees: Number(s.total_employees)   || 0,
+        pendingLeaves:  Number(s.pending_leaves)    || 0,
+        attendanceRate: Number(s.attendance_rate)   || 95.2,
+        totalLeaves:    Number(s.total_leaves)      || 0,
       });
-      setTeamMembers(teamList);
-      setLeaveRequests(leaveList);
+
+      setTeamMembers(Array.isArray(teamRes?.data) ? extractListData(teamRes.data) : extractListData(teamRes?.data || []));
+      setLeaveRequests(Array.isArray(leavesRes?.data) ? extractListData(leavesRes.data) : extractListData(leavesRes?.data || []));
+      setAnnouncements(Array.isArray(annRes?.data) ? extractListData(annRes.data) : extractListData(annRes?.data || []));
     } catch (err) {
-      if (axios.isCancel(err)) return;
-      setTeamMembers([]); setLeaveRequests([]);
-    } finally { setStatsLoading(false); }
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError') return;
+      console.error('Dashboard fetch error:', err);
+      const msg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Failed to load dashboard data';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      const res = await api.get('/employees/me/');
+      setManagerProfile(res.data);
+    } catch (e) { console.error(e); }
   }, []);
 
   useEffect(() => {
-    if (activeSection === 'dashboard') fetchManagerStats();
+    if (activeSection === 'dashboard') fetchDashboardData();
+    if (activeSection === 'profile')   fetchProfile();
     return () => { if (cancelRef.current) cancelRef.current.abort(); };
-  }, [activeSection, fetchManagerStats]);
+  }, [activeSection]);
 
   useEffect(() => { if (activePage) setActiveSection(activePage); }, [activePage]);
-  useEffect(() => { if (activeSection === 'profile') fetchManagerProfileData(); }, [activeSection, fetchManagerProfileData]);
 
-  const handleNavigation = (section) => setActiveSection(section);
-  const handleLogout = () => { localStorage.clear(); window.location.href = '/'; };
+  const isMenuActive = (item) => item.section === activeSection;
 
-  // ─── Section: Dashboard ──────────────────────────────────────────────────
-  const renderDashboard = () => (
-    <div style={{ padding: '24px' }}>
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '600', margin: '0 0 8px 0', color: '#1a1a1a' }}>
-          Hello, {user?.username || 'Manager'}!
-        </h1>
-        <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>Your department overview at a glance</p>
+  /* ── SIDEBAR ──────────────────────────────────────────────────── */
+  const renderSidebar = () => (
+    <div style={{
+      width: sidebarCollapsed ? '72px' : '260px',
+      backgroundColor: 'white', borderRight: '1.5px solid #F1F5F9',
+      display: 'flex', flexDirection: 'column', flexShrink: 0,
+      height: '100vh', overflowY: 'auto', overflowX: 'hidden',
+      transition: 'width 0.25s ease', boxShadow: '2px 0 8px rgba(0,0,0,0.04)',
+    }}>
+      {/* Logo */}
+      <div style={{ padding: '20px 16px 10px', textAlign: 'center', borderBottom: '1.5px solid #F1F5F9' }}>
+        {!sidebarCollapsed ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '22px', fontWeight: '800', color: '#0F172A', letterSpacing: '-1px', fontFamily: "'Montserrat',sans-serif" }}>EL</span>
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <span style={{ fontSize: '22px', fontWeight: '800', color: '#0F172A', fontFamily: "'Montserrat',sans-serif" }}>O</span>
+              <span style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '4px', height: '4px', backgroundColor: '#0F172A', borderRadius: '50%' }} />
+            </div>
+            <span style={{ fontSize: '22px', fontWeight: '800', color: '#0F172A', fontFamily: 'sans-serif' }}>G</span>
+            <span style={{ fontSize: '22px', fontWeight: '800', color: '#F97316', letterSpacing: '-1px', fontFamily: "'Montserrat',sans-serif" }}>IXA</span>
+          </div>
+        ) : (
+          <span style={{ fontSize: '20px', fontWeight: '800', color: '#F97316' }}>M</span>
+        )}
+        {!sidebarCollapsed && (
+          <div style={{ marginTop: '4px', fontSize: '10px', fontWeight: '700', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Manager Portal
+          </div>
+        )}
       </div>
 
-      {statsLoading ? (
-        <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
-          <div style={{ width: '32px', height: '32px', margin: '0 auto 12px', border: '3px solid #f3f3f3', borderTop: '3px solid #f97316', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-          Loading stats...
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
-          {[
-            { label: 'Team Size',       value: stats.totalEmployees,        change: 'Active Members',    color: '#10b981' },
-            { label: 'Pending Leaves',  value: stats.pendingLeaves,         change: 'Awaiting Approval', color: '#f59e0b' },
-            { label: 'Attendance Rate', value: `${stats.attendanceRate}%`,  change: 'Current Period',    color: '#10b981' },
-            { label: 'Total Leaves',    value: stats.totalLeavesTaken,      change: 'All Requests',      color: '#3b82f6' },
-          ].map(({ label, value, change, color }) => (
-            <div key={label} style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-              <div style={{ color: '#666', fontSize: '14px', marginBottom: '8px' }}>{label}</div>
-              <div style={{ fontSize: '28px', fontWeight: '700' }}>{value}</div>
-              <div style={{ color, fontSize: '13px', marginTop: '4px' }}>{change}</div>
+      {/* Nav items */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+        {menuItems.map(item => {
+          const active = isMenuActive(item);
+          return (
+            <div key={item.name} onClick={() => setActiveSection(item.section)}
+              title={sidebarCollapsed ? item.name : ''}
+              style={{
+                padding: sidebarCollapsed ? '11px' : '11px 16px',
+                margin: '2px 8px', borderRadius: '10px',
+                backgroundColor: active ? '#FFF7ED' : 'transparent',
+                color: active ? '#EA580C' : '#64748B',
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                gap: sidebarCollapsed ? 0 : '10px',
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                fontSize: '14px', fontWeight: active ? '700' : '500',
+                transition: 'all 0.15s',
+                borderLeft: active ? '3px solid #F97316' : '3px solid transparent',
+              }}
+              onMouseEnter={e => { if (!active) { e.currentTarget.style.backgroundColor = '#FFF7ED'; e.currentTarget.style.color = '#F97316'; } }}
+              onMouseLeave={e => { if (!active) { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#64748B'; } }}>
+              <span style={{ fontSize: '18px', flexShrink: 0 }}>{item.icon}</span>
+              {!sidebarCollapsed && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>}
+              {!sidebarCollapsed && active && <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#F97316', marginLeft: 'auto', flexShrink: 0 }} />}
             </div>
-          ))}
+          );
+        })}
+      </div>
+
+      {/* Collapse toggle */}
+      <div style={{ padding: '8px', borderTop: '1.5px solid #F1F5F9' }}>
+        <button onClick={() => setSidebarCollapsed(v => !v)}
+          style={{ width: '100%', padding: '8px', backgroundColor: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', color: '#64748B', fontWeight: '600' }}>
+          {sidebarCollapsed ? '>' : '< Collapse'}
+        </button>
+      </div>
+
+      {/* Employee Dashboard link */}
+      {!sidebarCollapsed && (
+        <div style={{ padding: '12px 16px', borderTop: '1.5px solid #F1F5F9' }}>
+          <button onClick={() => navigate('/employee')}
+            style={{ width: '100%', padding: '10px 14px', background: 'linear-gradient(135deg,#2563EB,#1D4ED8)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '7px', boxShadow: '0 4px 12px rgba(37,99,235,0.3)' }}>
+            &#x2190; Employee View
+          </button>
         </div>
       )}
 
-      {/* Control Room */}
-      <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-        <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 20px 0' }}>Manager Control Room</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px' }}>
-          <div>
-            {[
-              { label: 'Team Members',   value: stats.totalEmployees, color: '#f97316', pct: Math.min(100, stats.totalEmployees * 5) },
-              { label: 'Leaves Taken',   value: stats.totalLeavesTaken, color: '#10b981', pct: Math.min(100, stats.totalLeavesTaken * 5) },
-            ].map(({ label, value, color, pct }) => (
-              <div key={label} style={{ marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ color: '#666' }}>{label}</span>
-                  <span style={{ color, fontWeight: '600' }}>{value}</span>
-                </div>
-                <div style={{ width: '100%', height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '4px', transition: 'width 0.6s ease' }} />
-                </div>
-              </div>
-            ))}
+      {/* Logout */}
+      <div style={{ borderTop: '1.5px solid #F1F5F9', padding: sidebarCollapsed ? '12px 8px' : '14px 16px', flexShrink: 0 }}>
+        <button onClick={() => { localStorage.clear(); window.location.href = '/'; }}
+          title={sidebarCollapsed ? 'Logout' : ''}
+          style={{ width: '100%', padding: sidebarCollapsed ? '10px' : '10px 14px', backgroundColor: '#FEF2F2', color: '#DC2626', border: '1.5px solid #FECACA', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'flex-start', gap: '8px', fontSize: '13px', fontWeight: '700', transition: 'all 0.2s' }}
+          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#FEE2E2'}
+          onMouseLeave={e => e.currentTarget.style.backgroundColor = '#FEF2F2'}>
+          <span style={{ fontSize: '16px' }}>&#x23CE;</span>
+          {!sidebarCollapsed && 'Logout'}
+        </button>
+      </div>
+    </div>
+  );
+
+  /* ── TOP BAR ──────────────────────────────────────────────────── */
+  const renderTopBar = () => {
+    const currentPage = menuItems.find(m => m.section === activeSection);
+    return (
+      <div style={{ backgroundColor: 'white', padding: '0 28px', borderBottom: '1.5px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10, height: '62px', flexShrink: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '14px', color: '#94A3B8', fontWeight: '500' }}>Manager</span>
+          <span style={{ color: '#CBD5E1' }}>&rsaquo;</span>
+          <span style={{ fontSize: '14px', fontWeight: '700', color: '#0F172A' }}>
+            {currentPage?.icon} {currentPage?.name || 'Dashboard'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#16A34A', boxShadow: '0 0 0 2px rgba(22,163,74,0.2)' }} />
+            <span style={{ fontSize: '12px', color: '#16A34A', fontWeight: '700' }}>Active</span>
           </div>
-          <div>
-            {[
-              { label: 'Attendance Rate',   value: `${stats.attendanceRate}%`, color: '#f59e0b', pct: parseFloat(stats.attendanceRate) || 0 },
-              { label: 'Pending Approvals', value: stats.pendingLeaves, color: '#ef4444', pct: Math.min(100, stats.pendingLeaves * 10) },
-            ].map(({ label, value, color, pct }) => (
-              <div key={label} style={{ marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span style={{ color: '#666' }}>{label}</span>
-                  <span style={{ color, fontWeight: '600' }}>{value}</span>
-                </div>
-                <div style={{ width: '100%', height: '8px', backgroundColor: '#e5e7eb', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '4px' }} />
-                </div>
-              </div>
-            ))}
+          <div style={{ padding: '6px 14px', backgroundColor: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: '8px', fontSize: '12px', fontWeight: '600', color: '#475569' }}>
+            {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+          </div>
+          <span style={{ backgroundColor: '#FFFBEB', color: '#D97706', padding: '5px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', border: '1px solid #FDE68A' }}>
+            &#x1F454; Manager
+          </span>
+          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg,#F97316,#EA580C)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '800', color: 'white', border: '2px solid #FED7AA' }}>
+            {(managerProfile?.first_name || user?.username || 'M').charAt(0).toUpperCase()}
           </div>
         </div>
       </div>
+    );
+  };
 
-      {/* Quick Actions */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 24px', backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', marginBottom: '24px' }}>
-        <span style={{ color: '#666' }}>{teamMembers.length} Members in your Department</span>
-        <span style={{ color: '#f97316', cursor: 'pointer', fontSize: '14px' }}
-          onClick={() => handleNavigation('leave-management')}>
-          Review Pending Leave Requests →
+  /* ── fetch team + leaves when those sections are opened ──────── */
+  useEffect(() => {
+    if (activeSection === 'team-members' && teamMembers.length === 0) {
+      api.get('/department-employees/?limit=100').then(r => setTeamMembers(extractListData(r.data))).catch(console.error);
+    }
+    if (activeSection === 'leave-management' && leaveRequests.length === 0) {
+      api.get('/manager-leaves/?limit=100').then(r => setLeaveRequests(extractListData(r.data))).catch(console.error);
+    }
+    if (activeSection === 'announcements' && announcements.length === 0) {
+      api.get('/announcements/').then(r => setAnnouncements(extractListData(r.data))).catch(console.error);
+    }
+  }, [activeSection]);
+
+  const [leaveTab, setLeaveTab] = useState('all');
+  const [actionLoading, setActionLoading] = useState(false);
+  const [reviewLeave, setReviewLeave]     = useState(null);
+  const [reviewComment, setReviewComment] = useState('');
+
+  const handleLeaveAction = async (leaveId, action) => {
+    setActionLoading(true);
+    try {
+      await api.patch(`/leaves/${leaveId}/approve/`, { status: action, comments: reviewComment });
+      showNotif(`Leave ${action.toLowerCase()} successfully`, 'success');
+      setReviewLeave(null);
+      setReviewComment('');
+      // refresh
+      const r = await api.get('/manager-leaves/?limit=100');
+      setLeaveRequests(extractListData(r.data));
+      // refresh stats
+      const s = await api.get('/dashboard-stats/');
+      const sd = s.data || {};
+      setStats({
+        totalEmployees: Number(sd.total_employees) || 0,
+        pendingLeaves:  Number(sd.pending_leaves)  || 0,
+        attendanceRate: Number(sd.attendance_rate) || 95.2,
+        totalLeaves:    Number(sd.total_leaves)    || 0,
+      });
+    } catch (err) {
+      showNotif(err?.response?.data?.error || 'Action failed', 'error');
+    } finally { setActionLoading(false); }
+  };
+
+  /* ── TEAM MEMBERS ─────────────────────────────────────────────── */
+  const renderTeamMembers = () => (
+    <div style={{ padding: '28px 32px' }}>
+      <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0F172A', margin: 0 }}>Team Members</h2>
+          <p style={{ fontSize: '13px', color: '#64748B', margin: '4px 0 0' }}>Your department employees</p>
+        </div>
+        <span style={{ backgroundColor: '#FFF7ED', color: '#EA580C', padding: '5px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', border: '1px solid #FED7AA' }}>
+          {teamMembers.length} Members
         </span>
       </div>
-
-      {/* Recent Leave Requests */}
-      {leaveRequests.length > 0 && (
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-          <div style={{ padding: '18px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '16px', fontWeight: '600', color: '#111' }}>📝 Recent Leave Requests</span>
-            <button onClick={() => handleNavigation('leave-management')} style={{ fontSize: '13px', color: '#f97316', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '500' }}>
-              View All →
-            </button>
-          </div>
+      {teamMembers.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', backgroundColor: 'white', borderRadius: '14px', border: '1.5px solid #F1F5F9' }}>
+          <div style={{ fontSize: '40px', marginBottom: '12px' }}>👥</div>
+          <div style={{ fontSize: '15px', fontWeight: '600' }}>No team members found</div>
+          <div style={{ fontSize: '13px', marginTop: '6px' }}>You may not be assigned to a department yet.</div>
+        </div>
+      ) : (
+        <div style={{ backgroundColor: 'white', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1.5px solid #F1F5F9' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ backgroundColor: '#f9fafb' }}>
-                  {['Employee', 'Leave Type', 'Duration', 'Status'].map(h => (
-                    <th key={h} style={{ padding: '12px 16px', textAlign: 'left', color: '#666', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #e5e7eb' }}>{h}</th>
+                <tr style={{ backgroundColor: '#F8FAFC' }}>
+                  {['Employee', 'Email', 'Phone', 'Designation', 'Joining Date'].map(h => (
+                    <th key={h} style={{ padding: '13px 16px', textAlign: 'left', color: '#64748B', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px', borderBottom: '1.5px solid #F1F5F9' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {leaveRequests.slice(0, 5).map((leave, idx) => {
-                  const sMap = {
-                    APPROVED: { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
-                    REJECTED: { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
-                    PENDING:  { bg: '#fffbeb', color: '#b45309', border: '#fde68a' },
-                  };
-                  const sc = sMap[leave.status] || sMap.PENDING;
+                {teamMembers.map((m, idx) => {
+                  const name = m.full_name || `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.username || 'Employee';
                   return (
-                    <tr key={leave.id} style={{ borderBottom: '1px solid #f3f4f6', backgroundColor: idx % 2 === 0 ? '#fff' : '#fafafa' }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fff3e0'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = idx % 2 === 0 ? '#fff' : '#fafafa'}>
-                      <td style={{ padding: '12px 16px' }}>
+                    <tr key={m.id} style={{ borderBottom: '1px solid #F8FAFC', backgroundColor: idx % 2 === 0 ? '#fff' : '#FAFAFA', transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.backgroundColor = '#FFF7ED'}
+                      onMouseLeave={e => e.currentTarget.style.backgroundColor = idx % 2 === 0 ? '#fff' : '#FAFAFA'}>
+                      <td style={{ padding: '14px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#f97316', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', flexShrink: 0 }}>
-                            {(leave.employee_name || 'E').charAt(0).toUpperCase()}
+                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'linear-gradient(135deg,#F97316,#EA580C)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700', flexShrink: 0 }}>
+                            {name.charAt(0).toUpperCase()}
                           </div>
-                          <span style={{ fontSize: '14px', fontWeight: '600', color: '#111' }}>{leave.employee_name || `Employee #${leave.employee}`}</span>
+                          <div>
+                            <div style={{ fontWeight: '700', fontSize: '14px', color: '#0F172A' }}>{name}</div>
+                            <div style={{ fontSize: '11px', color: '#94A3B8', fontFamily: 'monospace' }}>ID: {m.employee_id || m.id}</div>
+                          </div>
                         </div>
                       </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <span style={{ background: '#fffbeb', color: '#b45309', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500', border: '1px solid #fde68a' }}>{leave.leave_type}</span>
-                      </td>
-                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#666' }}>{leave.start_date} – {leave.end_date}</td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`, padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase' }}>
-                          {leave.status}
-                        </span>
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: '#475569' }}>{m.email || m.user_email || '—'}</td>
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: '#475569' }}>{m.phone || '—'}</td>
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: '#475569' }}>{m.designation || 'Employee'}</td>
+                      <td style={{ padding: '14px 16px', fontSize: '13px', color: '#475569' }}>
+                        {m.joining_date ? new Date(m.joining_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                       </td>
                     </tr>
                   );
@@ -823,71 +361,416 @@ const ManagerAdminDashboard = ({ user, setUser, activePage }) => {
     </div>
   );
 
-  // ─── Section: Team Members ───────────────────────────────────────────────
-  const renderTeamMembers = () => (
-    <div style={{ padding: '24px' }}>
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ fontSize: '22px', fontWeight: '700', margin: '0 0 4px 0', color: '#1a1a1a' }}>👥 Team Members</h1>
-          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>All employees in your department</p>
+  /* ── LEAVE MANAGEMENT ─────────────────────────────────────────── */
+  const renderLeaveManagement = () => {
+    const pending  = leaveRequests.filter(l => l.status === 'PENDING');
+    const approved = leaveRequests.filter(l => l.status === 'APPROVED');
+    const rejected = leaveRequests.filter(l => l.status === 'REJECTED');
+    const displayed = leaveTab === 'pending' ? pending : leaveTab === 'approved' ? approved : leaveTab === 'rejected' ? rejected : leaveRequests;
+
+    return (
+      <div style={{ padding: '28px 32px' }}>
+        <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0F172A', margin: 0 }}>Leave Management</h2>
+            <p style={{ fontSize: '13px', color: '#64748B', margin: '4px 0 0' }}>Review and manage your team's leave requests</p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {[
+              { key: 'all',      label: `All (${leaveRequests.length})`,  color: '#64748B', bg: '#F8FAFC', border: '#E2E8F0' },
+              { key: 'pending',  label: `Pending (${pending.length})`,    color: '#B45309', bg: '#FFFBEB', border: '#FDE68A' },
+              { key: 'approved', label: `Approved (${approved.length})`,  color: '#15803D', bg: '#F0FDF4', border: '#BBF7D0' },
+              { key: 'rejected', label: `Rejected (${rejected.length})`,  color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
+            ].map(t => (
+              <button key={t.key} onClick={() => setLeaveTab(t.key)}
+                style={{ padding: '6px 14px', borderRadius: '20px', border: `1.5px solid ${leaveTab === t.key ? t.border : '#E2E8F0'}`, backgroundColor: leaveTab === t.key ? t.bg : 'white', color: leaveTab === t.key ? t.color : '#64748B', fontSize: '12px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s' }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <button onClick={fetchManagerStats} title="Refresh"
-          style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#666', fontWeight: '500' }}
-          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f9fafb'}
-          onMouseLeave={e => e.currentTarget.style.backgroundColor = 'white'}>
-          🔄 Refresh
-        </button>
+
+        {displayed.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '64px', color: '#94A3B8', backgroundColor: 'white', borderRadius: '14px', border: '1.5px solid #F1F5F9' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>📋</div>
+            <div style={{ fontSize: '15px', fontWeight: '600' }}>No leave requests found</div>
+          </div>
+        ) : (
+          <div style={{ backgroundColor: 'white', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1.5px solid #F1F5F9' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#F8FAFC' }}>
+                    {['Employee', 'Leave Type', 'Duration', 'Days', 'Reason', 'Status', 'Actions'].map(h => (
+                      <th key={h} style={{ padding: '13px 16px', textAlign: 'left', color: '#64748B', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px', borderBottom: '1.5px solid #F1F5F9' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayed.map((leave, idx) => {
+                    const days = leave.start_date && leave.end_date
+                      ? Math.ceil((new Date(leave.end_date) - new Date(leave.start_date)) / 86400000) + 1 : '—';
+                    return (
+                      <tr key={leave.id} style={{ borderBottom: '1px solid #F8FAFC', backgroundColor: idx % 2 === 0 ? '#fff' : '#FAFAFA', transition: 'background 0.15s' }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#FFF7ED'}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = idx % 2 === 0 ? '#fff' : '#FAFAFA'}>
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,#F97316,#EA580C)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', flexShrink: 0 }}>
+                              {(leave.employee_name || 'E').charAt(0).toUpperCase()}
+                            </div>
+                            <div style={{ fontWeight: '700', fontSize: '13px', color: '#0F172A' }}>{leave.employee_name || `Employee #${leave.employee}`}</div>
+                          </div>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', border: '1px solid #BFDBFE' }}>
+                            {leaveTypeLabels[leave.leave_type] || leave.leave_type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 16px', fontSize: '13px', color: '#64748B', whiteSpace: 'nowrap' }}>
+                          {leave.start_date} – {leave.end_date}
+                        </td>
+                        <td style={{ padding: '14px 16px', fontSize: '13px', fontWeight: '700', color: '#F97316' }}>{days}d</td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px', color: '#64748B' }}>
+                            {leave.reason || '—'}
+                          </div>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}><StatusBadge status={leave.status} /></td>
+                        <td style={{ padding: '14px 16px' }}>
+                          {leave.status === 'PENDING' ? (
+                            <button onClick={() => { setReviewLeave(leave); setReviewComment(''); }}
+                              style={{ padding: '6px 14px', background: 'linear-gradient(135deg,#F97316,#EA580C)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 2px 8px rgba(249,115,22,0.25)' }}>
+                              Review
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: '12px', color: '#94A3B8', fontWeight: '600' }}>Processed</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Review Modal */}
+        {reviewLeave && (
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px', animation: 'fadeIn 0.2s ease' }}
+            onClick={e => e.target === e.currentTarget && setReviewLeave(null)}>
+            <div style={{ backgroundColor: 'white', borderRadius: '20px', width: '90%', maxWidth: '500px', overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.2)', animation: 'slideUp 0.3s ease' }}>
+              <div style={{ background: 'linear-gradient(135deg,#F97316,#EA580C)', padding: '22px 28px', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800' }}>Review Leave Request</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '13px', opacity: 0.85 }}>{reviewLeave.employee_name || `Employee #${reviewLeave.employee}`}</p>
+                </div>
+                <button onClick={() => setReviewLeave(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', fontSize: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+              </div>
+              <div style={{ padding: '24px 28px' }}>
+                <div style={{ backgroundColor: '#F8FAFC', borderRadius: '12px', padding: '16px', marginBottom: '16px', border: '1.5px solid #F1F5F9' }}>
+                  {[
+                    ['Leave Type', leaveTypeLabels[reviewLeave.leave_type] || reviewLeave.leave_type],
+                    ['Start Date', reviewLeave.start_date],
+                    ['End Date',   reviewLeave.end_date],
+                    ['Reason',     reviewLeave.reason || '—'],
+                  ].map(([label, val]) => (
+                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.4px', paddingTop: '1px' }}>{label}</span>
+                      <span style={{ fontSize: '14px', color: '#0F172A', fontWeight: '500' }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+                <label style={{ display: 'block', marginBottom: '6px', fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Comments (Optional)</label>
+                <textarea value={reviewComment} onChange={e => setReviewComment(e.target.value)}
+                  placeholder="Add a comment for this decision..."
+                  style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #E2E8F0', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', outline: 'none' }} />
+              </div>
+              <div style={{ padding: '0 28px 24px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button onClick={() => setReviewLeave(null)} style={{ padding: '10px 20px', backgroundColor: '#F8FAFC', color: '#475569', border: '1.5px solid #E2E8F0', borderRadius: '10px', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>Cancel</button>
+                <button disabled={actionLoading} onClick={() => handleLeaveAction(reviewLeave.id, 'REJECTED')}
+                  style={{ padding: '10px 20px', backgroundColor: '#EF4444', color: 'white', border: 'none', borderRadius: '10px', fontSize: '14px', fontWeight: '700', cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.7 : 1 }}>
+                  {actionLoading ? '...' : 'Reject'}
+                </button>
+                <button disabled={actionLoading} onClick={() => handleLeaveAction(reviewLeave.id, 'APPROVED')}
+                  style={{ padding: '10px 20px', backgroundColor: '#16A34A', color: 'white', border: 'none', borderRadius: '10px', fontSize: '14px', fontWeight: '700', cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.7 : 1, boxShadow: '0 4px 12px rgba(22,163,74,0.3)' }}>
+                  {actionLoading ? '...' : 'Approve'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /* ── MY PROFILE ───────────────────────────────────────────────── */
+  const renderProfile = () => (
+    <div style={{ padding: '28px 32px' }}>
+      <div style={{ marginBottom: '24px' }}>
+        <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0F172A', margin: 0 }}>My Profile</h2>
+        <p style={{ fontSize: '13px', color: '#64748B', margin: '4px 0 0' }}>Your manager account details</p>
+      </div>
+      {!managerProfile ? (
+        <div style={{ textAlign: 'center', padding: '64px', color: '#94A3B8' }}>
+          <div style={{ width: '36px', height: '36px', border: '3px solid #FED7AA', borderTop: '3px solid #F97316', borderRadius: '50%', animation: 'mgSpin 0.8s linear infinite', margin: '0 auto 12px' }} />
+          Loading profile...
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+          {/* Personal Info */}
+          <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '24px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1.5px solid #F1F5F9' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'linear-gradient(135deg,#F97316,#EA580C)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', fontWeight: '800', border: '3px solid #FED7AA' }}>
+                {(managerProfile.first_name || 'M').charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: '800', color: '#0F172A' }}>
+                  {managerProfile.first_name} {managerProfile.last_name}
+                </div>
+                <span style={{ backgroundColor: '#FFFBEB', color: '#D97706', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', border: '1px solid #FDE68A' }}>
+                  👔 Manager
+                </span>
+              </div>
+            </div>
+            <div style={{ fontSize: '11px', fontWeight: '700', color: '#F97316', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '14px' }}>Personal Information</div>
+            {[
+              ['Employee ID',  managerProfile.employee_id || '—'],
+              ['Email',        managerProfile.email || managerProfile.user_email || '—'],
+              ['Phone',        managerProfile.phone || '—'],
+              ['Department',   managerProfile.department || '—'],
+              ['Designation',  managerProfile.designation || 'Manager'],
+              ['Joining Date', managerProfile.joining_date ? new Date(managerProfile.joining_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'],
+              ['Gender',       managerProfile.gender || '—'],
+            ].map(([label, val]) => (
+              <div key={label} style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px', marginBottom: '10px', alignItems: 'start' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.4px', paddingTop: '1px' }}>{label}</span>
+                <span style={{ fontSize: '14px', color: '#0F172A', fontWeight: '500' }}>{val}</span>
+              </div>
+            ))}
+          </div>
+          {/* Department Stats */}
+          <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '24px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1.5px solid #F1F5F9' }}>
+            <div style={{ fontSize: '11px', fontWeight: '700', color: '#F97316', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '20px' }}>Department Stats</div>
+            {[
+              { label: 'Team Size',       value: stats.totalEmployees, color: '#F97316', icon: '👥' },
+              { label: 'Pending Leaves',  value: stats.pendingLeaves,  color: '#F59E0B', icon: '⏳' },
+              { label: 'Total Leaves',    value: stats.totalLeaves,    color: '#2563EB', icon: '📋' },
+              { label: 'Attendance Rate', value: `${stats.attendanceRate}%`, color: '#16A34A', icon: '📅' },
+            ].map(({ label, value, color, icon }) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#F8FAFC', borderRadius: '10px', marginBottom: '10px', border: '1.5px solid #F1F5F9' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '18px' }}>{icon}</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>{label}</span>
+                </div>
+                <span style={{ fontSize: '16px', fontWeight: '800', color }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  /* ── renderContent ────────────────────────────────────────────── */
+  const renderContent = () => {
+    switch (activeSection) {
+      case 'team-members':     return renderTeamMembers();
+      case 'leave-management': return renderLeaveManagement();
+      case 'attendance':       return <div style={{ padding: '24px' }}><AdminAttendance /></div>;
+      case 'reports':          return <div style={{ padding: '24px' }}><HRReports user={user} isManager={true} /></div>;
+      case 'announcements':    return <div style={{ padding: '24px' }}><AdminAnnouncements user={user} /></div>;
+      case 'holidays':         return <div style={{ padding: '24px' }}><HolidayCalendar /></div>;
+      case 'profile':          return renderProfile();
+      default:                 return renderDashboard();
+    }
+  };
+
+  /* ── DASHBOARD ────────────────────────────────────────────────── */
+  const renderDashboard = () => (
+    <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', padding: '28px 32px', fontFamily: "'Nunito','Segoe UI',sans-serif" }}>
+      {error && !loading && (
+        <div style={{
+          background: '#FEF2F2',
+          border: '1.5px solid #FECACA',
+          borderRadius: '12px',
+          padding: '14px 18px',
+          marginBottom: '18px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          color: '#DC2626',
+          fontSize: '14px',
+          fontWeight: '600',
+        }}>
+          <span style={{ fontSize: '18px', lineHeight: 1 }}>⚠️</span>
+          <span style={{ flex: 1 }}>{error}</span>
+          <button
+            onClick={fetchDashboardData}
+            style={{
+              background: 'white',
+              border: '1.5px solid #FECACA',
+              borderRadius: '10px',
+              padding: '8px 14px',
+              cursor: 'pointer',
+              color: '#DC2626',
+              fontSize: '13px',
+              fontWeight: '800',
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{ marginBottom: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg,#F97316,#EA580C)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', boxShadow: '0 4px 12px rgba(249,115,22,0.3)' }}>&#x1F4CA;</div>
+          <div>
+            <h1 style={{ fontSize: '26px', fontWeight: '800', margin: 0, color: '#0F172A', letterSpacing: '-0.5px' }}>
+              Welcome back, {managerProfile?.first_name || user?.username || 'Manager'}!
+            </h1>
+            <p style={{ fontSize: '14px', color: '#64748B', margin: 0 }}>
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div style={{ backgroundColor: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '16px', fontWeight: '600', color: '#111' }}>Department Directory</span>
-          <span style={{ fontSize: '13px', color: '#9ca3af' }}>
-            {statsLoading ? 'Loading…' : `${teamMembers.length} member${teamMembers.length !== 1 ? 's' : ''}`}
-          </span>
+      {/* Stat Cards */}
+      {loading ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: '20px', marginBottom: '28px' }}>
+          {[1,2,3,4].map(i => <div key={i} style={{ background: '#E2E8F0', padding: '20px 24px', borderRadius: '16px', height: '110px', animation: 'pulse 1.5s ease-in-out infinite' }} />)}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: '20px', marginBottom: '28px' }}>
+          {[
+            { label: 'Team Size',       value: stats.totalEmployees, sub: 'Dept employees',    icon: '&#x1F465;', gradient: 'linear-gradient(135deg,#F97316,#EA580C)', shadow: 'rgba(249,115,22,0.25)', section: 'team-members' },
+            { label: 'Pending Leaves',  value: stats.pendingLeaves,  sub: 'Awaiting approval', icon: '&#x23F3;',  gradient: 'linear-gradient(135deg,#F59E0B,#D97706)', shadow: 'rgba(245,158,11,0.25)', section: 'leave-management' },
+            { label: 'Attendance Rate', value: `${stats.attendanceRate}%`, sub: 'Current period', icon: '&#x1F4C5;', gradient: 'linear-gradient(135deg,#16A34A,#15803D)', shadow: 'rgba(22,163,74,0.25)', section: 'attendance' },
+            { label: 'Total Leaves',    value: stats.totalLeaves,    sub: 'All requests',      icon: '&#x1F4DD;', gradient: 'linear-gradient(135deg,#2563EB,#1D4ED8)', shadow: 'rgba(37,99,235,0.25)', section: 'leave-management' },
+          ].map(card => (
+            <div key={card.label} onClick={() => setActiveSection(card.section)}
+              style={{ background: card.gradient, padding: '22px 24px', borderRadius: '16px', color: 'white', boxShadow: `0 6px 20px ${card.shadow}`, position: 'relative', overflow: 'hidden', transition: 'transform 0.2s', cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-3px)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+              <div style={{ position: 'absolute', top: '-20px', right: '-20px', width: '90px', height: '90px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.12)' }} />
+              <div style={{ fontSize: '28px', marginBottom: '10px' }} dangerouslySetInnerHTML={{ __html: card.icon }} />
+              <div style={{ fontSize: '13px', fontWeight: '600', opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>{card.label}</div>
+              <div style={{ fontSize: '36px', fontWeight: '800', lineHeight: 1, marginBottom: '6px' }}>{card.value}</div>
+              <div style={{ fontSize: '12px', opacity: 0.75, fontWeight: '500' }}>{card.sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Control Room + Quick Actions */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
+        {/* Control Room */}
+        <div style={{ backgroundColor: 'white', borderRadius: '14px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1.5px solid #F1F5F9', overflow: 'hidden' }}>
+          <div style={{ padding: '18px 24px', borderBottom: '1.5px solid #F1F5F9', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg,#F97316,#EA580C)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>&#x1F3DB;</div>
+            <span style={{ fontSize: '15px', fontWeight: '700', color: '#0F172A' }}>Department Overview</span>
+          </div>
+          <div style={{ padding: '24px' }}>
+            {[
+              { label: 'Team Members',    value: stats.totalEmployees, color: '#F97316', pct: Math.min(100, stats.totalEmployees * 5) },
+              { label: 'Pending Leaves',  value: stats.pendingLeaves,  color: '#F59E0B', pct: Math.min(100, stats.pendingLeaves * 10) },
+              { label: 'Attendance Rate', value: `${stats.attendanceRate}%`, color: '#16A34A', pct: parseFloat(stats.attendanceRate) || 0 },
+              { label: 'Total Leaves',    value: stats.totalLeaves,    color: '#2563EB', pct: Math.min(100, stats.totalLeaves * 3) },
+            ].map(({ label, value, color, pct }) => (
+              <div key={label} style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', color: '#64748B', fontWeight: '600' }}>{label}</span>
+                  <span style={{ fontSize: '13px', color, fontWeight: '800' }}>{value}</span>
+                </div>
+                <div style={{ width: '100%', height: '7px', backgroundColor: '#F1F5F9', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '4px', transition: 'width 0.8s ease' }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {teamMembers.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '64px', color: '#9ca3af', fontSize: '14px' }}>
-            <div style={{ fontSize: '36px', marginBottom: '12px' }}>👥</div>
-            No team members in your department yet.
+        {/* Quick Actions */}
+        <div style={{ backgroundColor: 'white', borderRadius: '14px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1.5px solid #F1F5F9', overflow: 'hidden' }}>
+          <div style={{ padding: '18px 24px', borderBottom: '1.5px solid #F1F5F9', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg,#16A34A,#15803D)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>&#x26A1;</div>
+            <span style={{ fontSize: '15px', fontWeight: '700', color: '#0F172A' }}>Quick Actions</span>
+          </div>
+          <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            {[
+              { label: 'Review Leaves',  icon: '&#x1F4DD;', color: '#F97316', bg: '#FFF7ED', border: '#FED7AA', section: 'leave-management' },
+              { label: 'Team Members',   icon: '&#x1F465;', color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0', section: 'team-members' },
+              { label: 'Attendance',     icon: '&#x1F4C5;', color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE', section: 'attendance' },
+              { label: 'Announcements',  icon: '&#x1F4E2;', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', section: 'announcements' },
+            ].map(qa => (
+              <button key={qa.label} onClick={() => setActiveSection(qa.section)}
+                style={{ padding: '16px 14px', backgroundColor: qa.bg, color: qa.color, border: `1.5px solid ${qa.border}`, borderRadius: '12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '700', transition: 'all 0.2s' }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 6px 16px ${qa.border}`; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}>
+                <span style={{ fontSize: '24px' }} dangerouslySetInnerHTML={{ __html: qa.icon }} />
+                {qa.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Leave Requests */}
+      <div style={{ backgroundColor: 'white', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1.5px solid #F1F5F9' }}>
+        <div style={{ padding: '16px 24px', borderBottom: '1.5px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '14px', fontWeight: '700', color: '#0F172A' }}>Recent Leave Requests</span>
+            {leaveRequests.length > 0 && <span style={{ backgroundColor: '#FFF7ED', color: '#EA580C', padding: '2px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', border: '1px solid #FED7AA' }}>{leaveRequests.length}</span>}
+          </div>
+          <button onClick={() => setActiveSection('leave-management')} style={{ fontSize: '12px', color: '#F97316', background: 'none', border: 'none', cursor: 'pointer', fontWeight: '700' }}>View All &rarr;</button>
+        </div>
+        {loading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+            <div style={{ width: '28px', height: '28px', border: '3px solid #FED7AA', borderTop: '3px solid #F97316', borderRadius: '50%', animation: 'mgSpin 0.8s linear infinite', margin: '0 auto 10px' }} />
+            Loading...
+          </div>
+        ) : leaveRequests.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+            <div style={{ fontSize: '32px', marginBottom: '8px' }}>&#x1F4ED;</div>
+            No leave requests in your department.
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ backgroundColor: '#f9fafb' }}>
-                  {['Employee', 'Department', 'Designation', 'Email', 'Phone'].map(h => (
-                    <th key={h} style={{ padding: '12px 16px', textAlign: 'left', color: '#666', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #e5e7eb' }}>{h}</th>
+                <tr style={{ backgroundColor: '#F8FAFC' }}>
+                  {['Employee', 'Leave Type', 'Duration', 'Status'].map(h => (
+                    <th key={h} style={{ padding: '11px 16px', textAlign: 'left', color: '#64748B', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px', borderBottom: '1.5px solid #F1F5F9' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {teamMembers.map((member, idx) => (
-                  <tr key={member.id} style={{ borderBottom: '1px solid #f3f4f6', backgroundColor: idx % 2 === 0 ? '#fff' : '#fafafa', transition: 'background 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.backgroundColor = '#fff3e0'}
-                    onMouseLeave={e => e.currentTarget.style.backgroundColor = idx % 2 === 0 ? '#fff' : '#fafafa'}>
-                    <td style={{ padding: '14px 16px' }}>
+                {leaveRequests.slice(0, 6).map((leave, idx) => (
+                  <tr key={leave.id} style={{ borderBottom: '1px solid #F8FAFC', backgroundColor: idx % 2 === 0 ? '#fff' : '#FAFAFA', transition: 'background 0.15s' }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = '#FFF7ED'}
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = idx % 2 === 0 ? '#fff' : '#FAFAFA'}>
+                    <td style={{ padding: '12px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#f97316', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700', flexShrink: 0 }}>
-                          {(member.first_name || member.full_name || 'T').charAt(0).toUpperCase()}
+                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,#F97316,#EA580C)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', flexShrink: 0 }}>
+                          {(leave.employee_name || 'E').charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <div style={{ fontWeight: '600', fontSize: '14px', color: '#111' }}>
-                            {member.full_name || `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.username || 'Employee'}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#9ca3af', fontFamily: 'monospace', marginTop: '1px' }}>ID: {member.employee_id || 'N/A'}</div>
+                          <div style={{ fontWeight: '700', fontSize: '13px', color: '#0F172A' }}>{leave.employee_name || `Employee #${leave.employee}`}</div>
+                          <div style={{ fontSize: '11px', color: '#94A3B8' }}>{leave.department || ''}</div>
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <span style={{ background: '#fff3e0', color: '#ea580c', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500', border: '1px solid #fed7aa' }}>
-                        🏢 {member.department || 'N/A'}
+                    <td style={{ padding: '12px 16px' }}>
+                      <span style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600', border: '1px solid #BFDBFE' }}>
+                        {leaveTypeLabels[leave.leave_type] || leave.leave_type}
                       </span>
                     </td>
-                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#374151' }}>{member.designation || 'Employee'}</td>
-                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#374151' }}>📧 {member.email || 'N/A'}</td>
-                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#374151' }}>📞 {member.phone || 'N/A'}</td>
+                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748B' }}>{leave.start_date} &ndash; {leave.end_date}</td>
+                    <td style={{ padding: '12px 16px' }}><StatusBadge status={leave.status} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -897,201 +780,46 @@ const ManagerAdminDashboard = ({ user, setUser, activePage }) => {
       </div>
     </div>
   );
-
-  // ─── Section: Attendance ─────────────────────────────────────────────────
-  const renderAttendance = () => (
-    <div style={{ padding: '24px' }}>
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '22px', fontWeight: '700', margin: '0 0 4px 0', color: '#1a1a1a' }}>📅 Attendance Management</h1>
-        <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>Team attendance records and daily/monthly overview</p>
-      </div>
-      <div style={{ backgroundColor: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
-          <span style={{ fontSize: '16px', fontWeight: '600', color: '#111' }}>Attendance Overview</span>
-        </div>
-        <div style={{ padding: '48px', textAlign: 'center', color: '#9ca3af' }}>
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>📅</div>
-          <p style={{ fontSize: '15px', fontWeight: '600', color: '#374151', margin: '0 0 8px 0' }}>Attendance module coming soon</p>
-          <p style={{ fontSize: '13px', margin: 0 }}>Team attendance records and daily/monthly overviews will appear here.</p>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ─── Section: Profile ────────────────────────────────────────────────────
-  const renderProfile = () => {
-    const profileData = managerProfile || user;
-    return (
-      <div style={{ padding: '24px' }}>
-        <div style={{ marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '22px', fontWeight: '700', margin: '0 0 4px 0', color: '#1a1a1a' }}>👤 My Profile</h1>
-          <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>Your manager profile and account details</p>
-        </div>
-
-        <div style={{ backgroundColor: 'white', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', border: '1px solid #e5e7eb', maxWidth: '640px' }}>
-          {/* Profile banner */}
-          <div style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)', padding: '28px 24px 56px', textAlign: 'center', position: 'relative' }}>
-            <div style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Manager Profile</div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: 'white' }}>
-              {profileData?.full_name || profileData?.username || user?.username || 'Manager'}
-            </div>
-          </div>
-
-          {/* Avatar */}
-          <div style={{ textAlign: 'center', marginTop: '-40px', marginBottom: '16px', position: 'relative', zIndex: 1 }}>
-            {profileLoading ? (
-              <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#e5e7eb', margin: '0 auto', border: '4px solid white' }} />
-            ) : (
-              <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#f97316', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: '32px', border: '4px solid white', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', color: 'white', fontWeight: '800' }}>
-                {(profileData?.full_name || profileData?.username || user?.username || 'M').charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div style={{ marginTop: '10px' }}>
-              <span style={{ padding: '3px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', background: '#dbeafe', color: '#1d4ed8' }}>Manager</span>
-            </div>
-          </div>
-
-          <div style={{ padding: '0 24px 24px' }}>
-            {profileLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>Loading profile…</div>
-            ) : (
-              <>
-                <div style={{ marginBottom: '16px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
-                  <div style={{ fontSize: '11px', fontWeight: '700', color: '#f97316', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '14px' }}>📋 Personal Information</div>
-                  {[
-                    ['Employee ID', profileData?.employee_id],
-                    ['Full Name', profileData?.full_name || profileData?.username || user?.username],
-                    ['Email', profileData?.email || user?.email],
-                    ['Phone', profileData?.phone],
-                    ['Department', profileData?.department || profileData?.managed_department],
-                    ['Designation', profileData?.designation],
-                    ['Joining Date', profileData?.joining_date],
-                    ['Gender', profileData?.gender],
-                    ['Address', profileData?.address],
-                  ].map(([label, value]) => (
-                    <div key={label} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', marginBottom: '10px' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '600', color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{label}</span>
-                      <span style={{ fontSize: '14px', color: '#111', fontWeight: '400' }}>{value || '—'}</span>
-                    </div>
-                  ))}
-                </div>
-                {(profileData?.emergency_contact_name || profileData?.emergency_contact_phone) && (
-                  <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '700', color: '#f97316', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '14px' }}>🚨 Emergency Contact</div>
-                    {[
-                      ['Name', profileData?.emergency_contact_name],
-                      ['Relationship', profileData?.emergency_contact_relationship],
-                      ['Phone', profileData?.emergency_contact_phone],
-                    ].map(([label, value]) => (
-                      <div key={label} style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', marginBottom: '10px' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '600', color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{label}</span>
-                        <span style={{ fontSize: '14px', color: '#111' }}>{value || '—'}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ─── Section router ──────────────────────────────────────────────────────
-  const renderContent = () => {
-    switch (activeSection) {
-      case 'dashboard':        return renderDashboard();
-      case 'team-members':     return renderTeamMembers();
-      case 'leave-management': return <AdminLeaveManagement />;
-      case 'attendance':       return renderAttendance();
-      case 'reports':          return <ManagerHRReports user={user} />;
-      case 'profile':          return renderProfile();
-      default:                 return renderDashboard();
-    }
-  };
-
-  // ─── Root render ─────────────────────────────────────────────────────────
+  /* ── MAIN RETURN ──────────────────────────────────────────────── */
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#f5f7fa', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#F8FAFC', fontFamily: "'Nunito','Segoe UI',sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
+        @keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px) } to { opacity: 1; transform: translateY(0) } }
+        @keyframes mgSpin  { to { transform: rotate(360deg) } }
+        @keyframes pulse   { 0%,100% { opacity: 1 } 50% { opacity: 0.5 } }
+        input:focus, select:focus, textarea:focus {
+          border-color: #F97316 !important;
+          box-shadow: 0 0 0 3px rgba(249,115,22,0.12) !important;
+          outline: none !important;
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #F8FAFC; }
+        ::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #CBD5E1; }
+      `}</style>
 
-      {/* ── Sidebar ────────────────────────────────────────────────────────── */}
-      <div style={{ width: '280px', backgroundColor: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', flexShrink: 0, height: '100vh', overflowY: 'auto' }}>
-        {/* Logo */}
-        <div style={{ padding: '24px 40px', flexShrink: 0 }}>
-          <span style={{ fontSize: '30px', fontWeight: '549', color: '#000000', letterSpacing: '-1px', fontFamily: "'Montserrat', 'Poppins', sans-serif" }}>EL</span>
-
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <span style={{ fontSize: '30px', fontWeight: '549', color: '#000000', fontFamily: "'Montserrat', 'Poppins', sans-serif" }}>O</span>
-            <span style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '3px', height: '3px', backgroundColor: '#000000', borderRadius: '50%', zIndex: 2 }}></span>
-          </div>
-
-          <span style={{ fontSize: '30px', fontWeight: '549', color: '#000000', letterSpacing: '-1px', fontFamily: 'sans-serif' }}>G</span>
-          <span style={{ fontSize: '30px', fontWeight: '549', color: '#ff9933', letterSpacing: '-1px', fontFamily: "'Montserrat', 'Poppins', sans-serif" }}>IXA</span>
-
-          <div style={{ position: 'relative', width: '80px', height: '150px', marginLeft: '-10px', display: 'inline-block', verticalAlign: 'middle' }}>
-            <div style={{ position: 'absolute', bottom: '90px', right: '29px', width: 0, height: 0, borderLeft: '18px solid transparent', borderRight: '18px solid transparent', borderBottom: '31px solid #4caf50', transform: 'rotate(-10deg)', transformOrigin: 'center', zIndex: 1 }} />
-            <div style={{ position: 'absolute', top: '25px', left: '-5px', width: 0, height: 0, borderLeft: '14px solid transparent', borderRight: '14px solid transparent', borderTop: '24px solid #ff9933', transform: 'rotate(-50deg)', transformOrigin: 'center', zIndex: 2 }} />
-            <div style={{ position: 'absolute', top: '1px', right: '40px', width: 0, height: 0, borderLeft: '16px solid transparent', borderRight: '16px solid transparent', borderTop: '28px solid #2d3748', transform: 'rotate(30deg)', transformOrigin: 'center', zIndex: 3 }} />
-          </div>
-
-          <p style={{ fontSize: '10px', color: '#666', margin: '-60px 0 0 0', textAlign: 'center', letterSpacing: '1px' }}>MANAGER PORTAL</p>
+      {/* Toast notification */}
+      {notification && (
+        <div style={{
+          position: 'fixed', bottom: '24px', right: '24px', zIndex: 2000,
+          padding: '14px 20px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '10px',
+          background: '#0F172A', color: 'white', fontSize: '14px', fontWeight: '600',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.15)', animation: 'slideUp 0.3s ease',
+          borderLeft: `4px solid ${notification.type === 'error' ? '#EF4444' : '#10B981'}`,
+          maxWidth: '360px',
+        }}>
+          <span>{notification.type === 'error' ? '⚠' : '✓'}</span>
+          {notification.message}
         </div>
+      )}
 
-        {/* Nav */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 0' }}>
-          {menuItems.map((item) => {
-            const isActive = activeSection === item.section;
-            return (
-              <div key={item.name}
-                onClick={() => handleNavigation(item.section)}
-                style={{
-                  padding: '12px 20px', margin: '4px 8px', borderRadius: '8px',
-                  backgroundColor: isActive ? '#fff3e0' : 'transparent',
-                  color: isActive ? '#f97316' : '#666',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px',
-                  fontSize: '14px', fontWeight: isActive ? '600' : '400', transition: 'all 0.2s',
-                }}
-                onMouseEnter={e => { if (!isActive) { e.currentTarget.style.backgroundColor = '#fff3e0'; e.currentTarget.style.color = '#f97316'; } }}
-                onMouseLeave={e => { if (!isActive) { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#666'; } }}>
-                <span style={{ fontSize: '20px' }}>{item.icon}</span>
-                {item.name}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {renderSidebar()}
 
-      {/* ── Main Content ────────────────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflowY: 'auto', height: '100vh', display: 'flex', flexDirection: 'column' }}>
-        {/* Top Bar */}
-        <div style={{ backgroundColor: 'white', padding: '12px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#666' }}>
-            <span>Manager Portal</span>
-            <span>›</span>
-            <span style={{ color: '#111', fontWeight: '500', textTransform: 'capitalize' }}>
-              {activeSection.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button onClick={() => navigate('/employee')}
-              style={{ padding: '8px 16px', background: '#f97316', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '500', cursor: 'pointer', transition: 'background-color 0.2s' }}
-              onMouseEnter={e => e.currentTarget.style.backgroundColor = '#ea580c'}
-              onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f97316'}>
-              ← Employee Dashboard
-            </button>
-            <button onClick={handleLogout}
-              style={{ padding: '8px 16px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '500', cursor: 'pointer', transition: 'background-color 0.2s' }}
-              onMouseEnter={e => e.currentTarget.style.backgroundColor = '#ea580c'}
-              onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f97316'}>
-              🚪 Logout
-            </button>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', minWidth: 0, backgroundColor: '#f5f7fa' }}>
+      <div style={{ flex: 1, overflowY: 'auto', height: '100vh', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {renderTopBar()}
+        <div style={{ flex: 1, overflowY: 'auto', backgroundColor: '#F8FAFC', animation: 'fadeIn 0.25s ease' }}>
           {renderContent()}
         </div>
       </div>
@@ -1100,3 +828,4 @@ const ManagerAdminDashboard = ({ user, setUser, activePage }) => {
 };
 
 export default ManagerAdminDashboard;
+

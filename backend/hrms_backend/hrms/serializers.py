@@ -13,8 +13,6 @@ from .models import (
     GuestVisit,
     VisitorLog,
     DepartmentVisitStats,
-    ChatSession,
-    ChatMessage,
 )
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
@@ -52,6 +50,11 @@ class DashboardStatsSerializer(serializers.Serializer):
     total_leaves = serializers.IntegerField()
     attendance_rate = serializers.FloatField()
     recent_activity = serializers.IntegerField()
+    pinned_announcements = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        required=False,
+    )
+    next_holiday = serializers.DictField(allow_null=True, required=False)
 
 
 # ===== EMPLOYEE SERIALIZER =====
@@ -95,15 +98,6 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return representation
 
     def validate_designation(self, value):
-        """
-        Validate that designation is not set to 'Manager' manually.
-        Manager designation is only set through the PromoteEmployeeView.
-        """
-        if value and value.lower() == 'manager':
-            raise serializers.ValidationError(
-                "Cannot manually assign 'Manager' as designation. "
-                "Use the Manager Management module to promote an employee to Manager."
-            )
         return value
 
     def create(self, validated_data):
@@ -162,30 +156,36 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
 # ===== LEAVE SERIALIZER =====
 class LeaveSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
-    employee_id = serializers.SerializerMethodField()
+    employee_id   = serializers.SerializerMethodField()
+    department    = serializers.SerializerMethodField()
     approved_by_username = serializers.SerializerMethodField()
-    leave_days = serializers.SerializerMethodField()
+    leave_days    = serializers.SerializerMethodField()
 
     class Meta:
         model = Leave
         fields = [
-            'id', 'employee', 'employee_name', 'employee_id', 'leave_type',
-            'start_date', 'end_date', 'reason', 'status', 'applied_at',
-            'approved_by', 'approved_by_username', 'comments', 'leave_days'
+            'id', 'employee', 'employee_name', 'employee_id', 'department',
+            'leave_type', 'start_date', 'end_date', 'reason', 'status',
+            'applied_at', 'approved_by', 'approved_by_username', 'comments',
+            'leave_days',
         ]
         read_only_fields = ['status', 'applied_at', 'employee', 'approved_by', 'leave_days']
 
     def get_employee_name(self, obj):
         try:
-            profile = obj.employee.employee_profile  # User → Employee OneToOne reverse
-            return profile.get_full_name()
+            return obj.employee.employee_profile.get_full_name()
         except Exception:
             return str(obj.employee)
 
     def get_employee_id(self, obj):
         try:
-            profile = obj.employee.employee_profile
-            return profile.employee_id
+            return obj.employee.employee_profile.employee_id
+        except Exception:
+            return None
+
+    def get_department(self, obj):
+        try:
+            return obj.employee.employee_profile.department
         except Exception:
             return None
 
@@ -342,23 +342,6 @@ class HolidayNotificationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['sent_at', 'sent_by', 'recipient_count']
 
-class ChatMessageSerializer(serializers.ModelSerializer):
-    """Serializer for chatbot messages."""
-
-    class Meta:
-        model = ChatMessage
-        fields = ['id', 'sender', 'content', 'created_at']
-        read_only_fields = ['id', 'created_at']
-
-
-class ChatSessionSerializer(serializers.ModelSerializer):
-    """Serializer for chatbot sessions with message history."""
-    messages = ChatMessageSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = ChatSession
-        fields = ['id', 'started_at', 'updated_at', 'active', 'messages']
-        read_only_fields = ['id', 'started_at', 'updated_at', 'messages']
 
 class HolidayBulkCreateSerializer(serializers.Serializer):
     """

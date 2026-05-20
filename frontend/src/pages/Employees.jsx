@@ -1,9 +1,33 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../utils/axiosConfig';
 import { extractListData } from '../utils/extractListData';
 import { useNavigate, useLocation } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+
+const FormSection = ({ title, icon, children }) => (
+  <div style={{
+    marginBottom: '24px',
+    backgroundColor: '#FAFAFA',
+    borderRadius: '12px',
+    padding: '20px',
+    border: '1.5px solid #E2E8F0',
+  }}>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '8px',
+      marginBottom: '18px', paddingBottom: '12px',
+      borderBottom: '2px solid #FED7AA',
+    }}>
+      <span style={{
+        width: '30px', height: '30px', borderRadius: '8px',
+        backgroundColor: '#FFF7ED', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', fontSize: '16px',
+      }}>{icon}</span>
+      <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#0F172A', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</h3>
+    </div>
+    {children}
+  </div>
+);
 
 /* ─── Design Token Variables (injected via <style>) ──────────────────────────
    Primary  : #F97316  (orange-500)
@@ -39,6 +63,8 @@ const Employees = () => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const refreshRef = useRef();
 
@@ -46,9 +72,6 @@ const Employees = () => {
   const [searchBy, setSearchBy] = useState('all');
   const [selectedDepartment, setSelectedDepartment] = useState('all');
   const [selectedDesignation, setSelectedDesignation] = useState('all');
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
 
   const designationOptions = [
     'Software Engineer',
@@ -74,6 +97,7 @@ const Employees = () => {
     marital_status: '',
     education: '',
     email: '',
+    employee_code: '',
     phone: '',
     address: '',
     department: '',
@@ -107,8 +131,17 @@ const Employees = () => {
   } = useQuery({
     queryKey: ['employees'],
     queryFn: async () => {
-      const response = await api.get('/employees/');
-      return extractListData(response.data);
+      const allEmployees = [];
+      let nextUrl = '/employees/?limit=100';
+
+      while (nextUrl) {
+        const response = await api.get(nextUrl);
+        const pageEmployees = extractListData(response.data);
+        allEmployees.push(...pageEmployees);
+        nextUrl = response.data?.next || null;
+      }
+
+      return allEmployees;
     },
     onError: (error) => {
       console.error('❌ Error fetching employees:', error);
@@ -212,6 +245,30 @@ const Employees = () => {
     XLSX.utils.book_append_sheet(wb, ws, 'Employees');
     XLSX.writeFile(wb, `employees_export_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
+  const exportEmployeeCodes = () => {
+    const data = employees.map((emp, idx) => ({
+      'Sr No': idx + 1,
+      'Employee Code': emp.employee_id || '',
+      'Employee Name': `${emp.first_name || ''} ${emp.middle_name || ''} ${emp.last_name || ''}`.replace(/\s+/g, ' ').trim(),
+      'Department': emp.department || '',
+      'Designation': emp.designation || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+
+    // Style the header row width
+    ws['!cols'] = [
+      { wch: 6 },   // Sr No
+      { wch: 18 },  // Employee Code
+      { wch: 28 },  // Employee Name
+      { wch: 20 },  // Department
+      { wch: 20 },  // Designation
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Employee Codes');
+    XLSX.writeFile(wb, `employee_codes_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   // ─── Form helpers ─────────────────────────────────────────────────────────────
   const handleInputChange = (e) => {
@@ -242,6 +299,10 @@ const Employees = () => {
     if (currentStep === 1) {
       if (!formData.first_name || !formData.last_name || !formData.email || !formData.phone || !formData.department || !formData.designation) {
         alert('Please fill all required fields (First Name, Last Name, Email, Phone, Department, Designation)');
+        return false;
+      }
+      if (!formData.employee_code || !formData.employee_code.trim()) {
+        alert('Employee Code is required. It must match the code used in the attendance Excel file.');
         return false;
       }
       if (formData.designation === 'Manager') {
@@ -307,7 +368,7 @@ const Employees = () => {
       const formDataToSend = new FormData();
       const fields = [
         'first_name','middle_name','last_name','gender','marital_status','education',
-        'email','phone','address','department','designation','joining_date',
+        'email','employee_code','phone','address','department','designation','joining_date',
         'emergency_contact_name','emergency_contact_relationship','emergency_contact_phone','emergency_contact_occupation',
         'education_level','institute_name','year_of_passing','marks_type','marks_value',
         'account_holder_name','account_number','bank_name','ifsc_code','branch_name','account_type',
@@ -350,6 +411,7 @@ const Employees = () => {
       marital_status: employee.marital_status || '',
       education: employee.education || '',
       email: employee.email || '',
+      employee_code: employee.employee_code || '',
       phone: employee.phone || '',
       address: employee.address || '',
       department: employee.department || '',
@@ -589,30 +651,6 @@ const Employees = () => {
   };
 
   // ─── Form Section Wrapper ─────────────────────────────────────────────────────
-  const FormSection = ({ title, icon, children }) => (
-    <div style={{
-      marginBottom: '24px',
-      backgroundColor: '#FAFAFA',
-      borderRadius: '12px',
-      padding: '20px',
-      border: '1.5px solid #E2E8F0',
-    }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '8px',
-        marginBottom: '18px', paddingBottom: '12px',
-        borderBottom: '2px solid #FED7AA',
-      }}>
-        <span style={{
-          width: '30px', height: '30px', borderRadius: '8px',
-          backgroundColor: '#FFF7ED', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', fontSize: '16px',
-        }}>{icon}</span>
-        <h3 style={{ fontSize: '14px', fontWeight: '700', color: '#0F172A', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</h3>
-      </div>
-      {children}
-    </div>
-  );
-
   // ─── Step 1: Personal Info ────────────────────────────────────────────────────
   const renderPersonalInfo = () => (
     <>
@@ -655,6 +693,40 @@ const Employees = () => {
       </div>
 
       <FormSection title="Basic Information" icon="👤">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+          <div>
+            <label style={labelStyle}>First Name <span style={{ color: '#EF4444' }}>*</span></label>
+            <input type="text" name="first_name" value={formData.first_name} onChange={handleInputChange} required placeholder="First name" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Middle Name</label>
+            <input type="text" name="middle_name" value={formData.middle_name} onChange={handleInputChange} placeholder="Middle name" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Last Name <span style={{ color: '#EF4444' }}>*</span></label>
+            <input type="text" name="last_name" value={formData.last_name} onChange={handleInputChange} required placeholder="Last name" style={inputStyle} />
+          </div>
+        </div>
+        {/* Employee Code — must match attendance Excel */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={labelStyle}>
+            Employee Code <span style={{ color: '#EF4444' }}>*</span>
+            <span style={{ marginLeft: 6, fontSize: 10, color: '#94A3B8', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
+              (Must match the code in attendance Excel file)
+            </span>
+          </label>
+          <input
+            type="text"
+            name="employee_code"
+            value={formData.employee_code}
+            onChange={handleInputChange}
+            required
+            placeholder="e.g. Intern 44, EMP001, EXEC01"
+            style={{ ...inputStyle, fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.5px' }}
+          />
+        </div>
+
+        {/* Name fields */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
           <div>
             <label style={labelStyle}>First Name <span style={{ color: '#EF4444' }}>*</span></label>
@@ -960,6 +1032,20 @@ const Employees = () => {
           >
             📊 Export to Excel
           </button>
+          <button onClick={exportEmployeeCodes}
+            style={{
+              backgroundColor: '#2563EB', color: 'white', border: 'none',
+              padding: '11px 22px', borderRadius: '10px', fontSize: '14px',
+              fontWeight: '700', cursor: 'pointer', display: 'flex',
+              alignItems: 'center', gap: '7px',
+              boxShadow: '0 4px 12px rgba(37,99,235,0.25)',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(37,99,235,0.35)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(37,99,235,0.25)'; }}
+          >
+            🧾 Export Codes
+          </button>
         </div>
       </div>
 
@@ -1155,46 +1241,48 @@ const Employees = () => {
           </table>
         </div>
 
-        {/* Pagination */}
+        {/* Result count */}
         {!loading && filteredEmployees.length > 0 && (
           <div style={{
             padding: '16px 24px', borderTop: '1.5px solid #F1F5F9',
             display: 'flex', justifyContent: 'space-between',
-            alignItems: 'center', flexWrap: 'wrap', gap: '12px',
+            alignItems: 'center', gap: '12px', flexWrap: 'wrap',
             backgroundColor: '#FAFAFA',
           }}>
             <div style={{ fontSize: '13px', color: '#64748B', fontWeight: '500' }}>
-              Showing <strong>{indexOfFirstItem + 1}–{Math.min(indexOfLastItem, filteredEmployees.length)}</strong> of <strong>{filteredEmployees.length}</strong> employees
+              Showing <strong>{indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredEmployees.length)}</strong> of <strong>{filteredEmployees.length}</strong> employees
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))} disabled={currentPage === 1}
-                style={{
-                  padding: '8px 18px', borderRadius: '8px', fontSize: '13px', fontWeight: '700',
-                  border: '1.5px solid #E2E8F0', cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                  backgroundColor: currentPage === 1 ? '#F8FAFC' : 'white',
-                  color: currentPage === 1 ? '#CBD5E1' : '#0F172A',
-                  transition: 'all 0.15s',
-                }}>
-                ← Prev
-              </button>
-              <span style={{
-                padding: '8px 16px', backgroundColor: '#F97316', color: 'white',
-                borderRadius: '8px', fontSize: '13px', fontWeight: '700',
-                minWidth: '90px', textAlign: 'center',
-              }}>
-                {currentPage} / {totalPages}
-              </span>
-              <button onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages}
-                style={{
-                  padding: '8px 18px', borderRadius: '8px', fontSize: '13px', fontWeight: '700',
-                  border: '1.5px solid #E2E8F0', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-                  backgroundColor: currentPage === totalPages ? '#F8FAFC' : 'white',
-                  color: currentPage === totalPages ? '#CBD5E1' : '#0F172A',
-                  transition: 'all 0.15s',
-                }}>
-                Next →
-              </button>
-            </div>
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: '8px 12px', borderRadius: '8px', border: '1.5px solid #E2E8F0',
+                    backgroundColor: currentPage === 1 ? '#F8FAFC' : '#FFFFFF',
+                    color: currentPage === 1 ? '#94A3B8' : '#475569',
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer', fontWeight: 700,
+                  }}
+                >
+                  Previous
+                </button>
+                <span style={{ fontSize: '13px', color: '#475569', fontWeight: 700 }}>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: '8px 12px', borderRadius: '8px', border: '1.5px solid #E2E8F0',
+                    backgroundColor: currentPage === totalPages ? '#F8FAFC' : '#FFFFFF',
+                    color: currentPage === totalPages ? '#94A3B8' : '#475569',
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', fontWeight: 700,
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

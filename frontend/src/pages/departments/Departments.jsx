@@ -56,8 +56,13 @@ const Departments = () => {
       localStorage.setItem('departments', JSON.stringify(normalized));
       return normalized;
     },
-    initialData: savedDepartments,
+    initialData: savedDepartments.length ? savedDepartments : undefined,
+    placeholderData: savedDepartments,
+    keepPreviousData: true,
+    refetchOnMount: savedDepartments.length === 0,
+    refetchOnWindowFocus: false,
     staleTime: 5 * 60 * 1000,
+    cacheTime: 30 * 60 * 1000,
   });
 
   const loading = isLoading || (isFetching && departments.length === 0);

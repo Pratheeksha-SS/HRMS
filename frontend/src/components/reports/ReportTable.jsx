@@ -71,32 +71,39 @@ const getColumns = (reportType) => {
   switch (reportType) {
     case 'attendance':
       return [
-        { key: 'employee_name', label: 'Employee',    render: (v, r) => <AvatarCell name={v} sub={r.employee_id} /> },
-        { key: 'department',    label: 'Department',  render: v => <DeptChip value={v} /> },
-        { key: 'status',        label: 'Status',      render: v => <StatusBadge value={v} /> },
-        { key: 'login_time',    label: 'Login',       render: v => v || '—' },
-        { key: 'logout_time',   label: 'Logout',      render: v => v || '—' },
-        { key: 'working_hours', label: 'Hrs Worked',  render: v => v ? <span style={{ fontWeight: '700', color: '#F97316' }}>{v}h</span> : '—' },
+        { key: 'employee_name',      label: 'Employee',      render: (v, r) => <AvatarCell name={v} sub={r.employee_id} image={r.profile_image_url} /> },
+        { key: 'department',         label: 'Department',    render: v => <DeptChip value={v} /> },
+        { key: 'attendance_percentage', label: 'Attendance %', render: v => v != null ? <span style={{ fontWeight: '700', color: '#2563EB' }}>{v}%</span> : '—' },
+        { key: 'present_days',       label: 'Present',       render: v => v != null ? v : '—' },
+        { key: 'absent_days',        label: 'Absent',        render: v => v != null ? v : '—' },
+        { key: 'leave_days',         label: 'Leave Days',    render: v => v != null ? v : '—' },
+        { key: 'actual_hours',       label: 'Total Hrs',     render: v => v ? <span style={{ fontWeight: '700', color: '#16A34A' }}>{v}h</span> : '—' },
+        { key: 'status',             label: 'Status',        render: v => <StatusBadge value={v} /> },
       ];
     case 'leave':
       return [
-        { key: 'employee_name', label: 'Employee',   render: (v, r) => <AvatarCell name={v} sub={r.employee_id} /> },
+        { key: 'employee_name', label: 'Employee',   render: (v, r) => <AvatarCell name={v} sub={r.employee_id} image={r.profile_image_url} /> },
         { key: 'department',    label: 'Department', render: v => <DeptChip value={v} /> },
         { key: 'leave_type',    label: 'Leave Type', render: v => v || '—' },
-        { key: 'start_date',    label: 'From',       render: v => v || '—' },
-        { key: 'end_date',      label: 'To',         render: v => v || '—' },
-        { key: 'total_days',    label: 'Days',       render: v => v ? <DaysChip value={v} /> : '—' },
+        { key: 'start_date',    label: 'From',       render: (v, r) => v || r.from_date || '—' },
+        { key: 'end_date',      label: 'To',         render: (v, r) => v || r.to_date || '—' },
+        { key: 'total_days',    label: 'Days',       render: (v, r) => {
+          const d = v || r.days || r.leave_days;
+          return d ? <DaysChip value={d} /> : '—';
+        }},
         { key: 'status',        label: 'Status',     render: v => <StatusBadge value={v} /> },
+        { key: 'reason',        label: 'Reason',     render: v => v ? <span style={{ fontSize: '12px', color: '#64748B', maxWidth: '180px', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</span> : '—' },
       ];
     case 'employee':
       return [
-        { key: 'employee_name',     label: 'Employee',     render: (v, r) => <AvatarCell name={v} sub={r.employee_id} /> },
+        { key: 'employee_name',     label: 'Employee',     render: (v, r) => <AvatarCell name={v} sub={r.employee_id} image={r.profile_image_url} /> },
         { key: 'department',        label: 'Department',   render: v => <DeptChip value={v} /> },
         { key: 'designation',       label: 'Designation',  render: v => v || '—' },
         { key: 'joining_date',      label: 'Joined',       render: v => v ? new Date(v).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—' },
         { key: 'tenure_years',      label: 'Tenure',       render: v => v ? <span style={{ fontWeight: '700', color: '#2563EB' }}>{v}y</span> : '—' },
         { key: 'leaves_taken',      label: 'Leaves',       render: v => v ?? '—' },
         { key: 'performance_rating',label: 'Performance',  render: v => <StatusBadge value={v} /> },
+        { key: 'last_salary',       label: 'Salary',       render: v => v ? <span style={{ fontWeight: '700', color: '#16A34A' }}>₹{Number(v).toLocaleString()}</span> : '—' },
       ];
     default:
       return [

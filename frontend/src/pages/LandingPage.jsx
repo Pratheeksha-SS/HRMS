@@ -214,7 +214,7 @@ function ChevronRightIcon() {
   );
 }
 
-// ── Custom hook: scroll reveal ─────────────────────────────────────────────────
+// ── Custom hook: scroll reveal (UPWARD — rise from below) ─────────────────────
 function useReveal() {
   useEffect(() => {
     const els = document.querySelectorAll('.lp-reveal');
@@ -227,7 +227,7 @@ function useReveal() {
           }
         });
       },
-      { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+      { threshold: 0.1, rootMargin: '0px 0px -50px 0px' }
     );
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
@@ -237,7 +237,14 @@ function useReveal() {
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   useReveal();
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const closeMenu = () => {
     setMenuOpen(false);
@@ -249,13 +256,12 @@ export default function LandingPage() {
     document.body.style.overflow = 'hidden';
   };
 
-  // Prevent scroll leak on unmount
   useEffect(() => () => { document.body.style.overflow = ''; }, []);
 
   return (
     <div className="lp">
       {/* ── HEADER ── */}
-      <header className="lp-header">
+      <header className={`lp-header${scrolled ? ' lp-header--scrolled' : ''}`}>
         <nav className="lp-nav lp-container" aria-label="Primary navigation">
           <ElogixaLogo />
 
@@ -313,26 +319,36 @@ export default function LandingPage() {
 
       {/* ══════════════ HERO ══════════════ */}
       <section className="lp-hero" id="home">
+        {/* Animated background orbs */}
+        <div className="lp-hero__orb lp-hero__orb--1" aria-hidden="true" />
+        <div className="lp-hero__orb lp-hero__orb--2" aria-hidden="true" />
+        <div className="lp-hero__orb lp-hero__orb--3" aria-hidden="true" />
+        {/* Subtle grid overlay */}
+        <div className="lp-hero__grid-bg" aria-hidden="true" />
+
         <div className="lp-container lp-hero__grid">
 
           {/* Copy */}
           <div className="lp-hero__copy">
-            <span className="lp-tag lp-reveal lp-reveal--d0">
+            <span className="lp-tag lp-rise lp-rise--d0">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
               </svg>
               Enterprise HRMS Platform
             </span>
 
-            <h1 className="lp-reveal lp-reveal--d1">
-              Smart <span className="lp-hero__highlight">Workforce</span> Management System
+            {/* HRNova — clipped word reveal, rising up */}
+            <h1 className="lp-rise lp-rise--d1">
+              <span className="lp-hero__title-line">
+                <span className="lp-hero__title-word lp-word-rise lp-word-rise--d0">HRNova</span>
+              </span>
             </h1>
 
-            <p className="lp-reveal lp-reveal--d2">
+            <p className="lp-rise lp-rise--d2">
               A secure, enterprise-grade HRMS gateway for managing employees, attendance, leave, payroll, and workforce analytics — powered by ELOGIXA's IT excellence.
             </p>
 
-            <div className="lp-hero__actions lp-reveal lp-reveal--d3">
+            <div className="lp-hero__actions lp-rise lp-rise--d3">
               <Link to="/login" className="lp-btn lp-btn--primary">
                 Login to HRMS <ArrowRightIcon />
               </Link>
@@ -341,7 +357,7 @@ export default function LandingPage() {
               </a>
             </div>
 
-            <div className="lp-hero__trust lp-reveal lp-reveal--d4">
+            <div className="lp-hero__trust lp-rise lp-rise--d4">
               {[
                 'JWT Secured',
                 'Role-Based Access',
@@ -361,7 +377,10 @@ export default function LandingPage() {
           </div>
 
           {/* Dashboard Panel */}
-          <div className="lp-hero__panel lp-reveal lp-reveal--d2">
+          <div className="lp-hero__panel lp-rise lp-rise--d2">
+            {/* Shine sweep */}
+            <div className="lp-panel__shine" aria-hidden="true" />
+
             <div className="lp-panel__header">
               <div className="lp-panel__header-left">
                 Workforce Command Center
@@ -374,8 +393,11 @@ export default function LandingPage() {
             </div>
 
             <div className="lp-dash-grid">
-              {DASH_CARDS.map((card) => (
-                <div key={card.id} className={`lp-dash-card${card.primary ? ' lp-dash-card--primary' : ''}`}>
+              {DASH_CARDS.map((card, i) => (
+                <div
+                  key={card.id}
+                  className={`lp-dash-card${card.primary ? ' lp-dash-card--primary' : ''} lp-card-pop lp-card-pop--d${i}`}
+                >
                   <div className="lp-dash-card__icon">{card.icon}</div>
                   <div className="lp-dash-card__label">{card.label}</div>
                   <div className="lp-dash-card__value">{card.value}</div>
@@ -402,6 +424,11 @@ export default function LandingPage() {
               ))}
             </div>
           </div>
+        </div>
+
+        {/* Scroll indicator */}
+        <div className="lp-hero__scroll" aria-hidden="true">
+          <span className="lp-scroll-line" />
         </div>
       </section>
 
@@ -448,8 +475,8 @@ export default function LandingPage() {
             <div className="lp-about__card">
               <p className="lp-about__presence-title">Global Service Presence</p>
               <div className="lp-regions">
-                {REGIONS.map((r) => (
-                  <div key={r.name} className="lp-region">
+                {REGIONS.map((r, i) => (
+                  <div key={r.name} className={`lp-region lp-reveal lp-reveal--d${i}`}>
                     <span className="lp-region__flag">{r.flag}</span>
                     <div className="lp-region__info">
                       <h5>{r.name}</h5>

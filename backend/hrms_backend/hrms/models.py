@@ -113,6 +113,14 @@ class Employee(models.Model):
         blank=True,
         editable=False
     )
+    employee_code = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text='Unique code used in attendance Excel (e.g. Intern 44, EMP001)'
+    )
 
     department = models.CharField(max_length=100, default='', db_index=True)
 
@@ -156,6 +164,9 @@ class Employee(models.Model):
     sick_leave_total = models.IntegerField(default=12)
     casual_leave_total = models.IntegerField(default=10)
     paid_leave_total = models.IntegerField(default=15)
+
+    # Stores the designation before promotion to Manager, so it can be restored on revoke
+    previous_designation = models.CharField(max_length=100, blank=True, null=True)
 
     def __str__(self):
         return self.get_full_name()
@@ -824,3 +835,176 @@ class DepartmentVisitStats(models.Model):
     
     def __str__(self):
         return f"{self.department}: {self.total_visits} visits"
+
+# ==================== EMPLOYEE ATTENDANCE (Excel Upload) ====================
+
+class AttendanceUpload(models.Model):
+    """Tracks uploaded attendance Excel files."""
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='attendance_uploads'
+    )
+    file = models.FileField(upload_to='attendance_uploads/')
+    original_filename = models.CharField(max_length=255)
+    month = models.IntegerField()   # 1-12
+    year = models.IntegerField()
+    records_processed = models.IntegerField(default=0)
+    records_failed = models.IntegerField(default=0)
+    status = models.CharField(
+        max_length=20,
+        choices=[('PENDING', 'Pending'), ('PROCESSING', 'Processing'),
+                 ('DONE', 'Done'), ('FAILED', 'Failed')],
+        default='PENDING'
+    )
+    error_log = models.TextField(blank=True, null=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"Attendance {self.month}/{self.year} — {self.original_filename}"
+
+
+class EmployeeAttendance(models.Model):
+    """One record per employee per day, parsed from the Excel report."""
+
+    STATUS_CHOICES = [
+        ('P',        'Present'),
+        ('A',        'Absent'),
+        ('WO',       'Weekly Off'),
+        ('P_MO',     'Present (Missed Out)'),
+        ('LEAVE',    'On Leave'),
+        ('HALF',     'Half Day'),
+    ]
+
+    upload = models.ForeignKey(
+        AttendanceUpload, on_delete=models.CASCADE, related_name='records', null=True, blank=True
+    )
+    # Link to employee — by employee_code from Excel (e.g. "Intern 44") or matched name
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='attendance_records', null=True, blank=True
+    )
+    # Raw fields from Excel (kept even if employee not matched)
+    employee_code = models.CharField(max_length=50, db_index=True)
+    employee_name = models.CharField(max_length=200)
+    designation   = models.CharField(max_length=100, blank=True)
+
+    date          = models.DateField(db_index=True)
+    month         = models.IntegerField(db_index=True)
+    year          = models.IntegerField(db_index=True)
+
+    shift         = models.CharField(max_length=10, blank=True)   # GS / WO / NA
+    in_time       = models.TimeField(null=True, blank=True)
+    out_time      = models.TimeField(null=True, blank=True)
+    late_by       = models.DurationField(null=True, blank=True)    # timedelta
+    early_by      = models.DurationField(null=True, blank=True)
+    overtime      = models.DurationField(null=True, blank=True)
+    duration      = models.DurationField(null=True, blank=True)    # total working hours
+
+    status        = models.CharField(max_length=10, choices=STATUS_CHOICES, default='A', db_index=True)
+    is_weekly_off = models.BooleanField(default=False)
+    is_present    = models.BooleanField(default=False)
+    is_absent     = models.BooleanField(default=False)
+    is_late       = models.BooleanField(default=False)
+    is_early_exit = models.BooleanField(default=False)
+    is_missed_out = models.BooleanField(default=False)   # P(Missedout)
+    # Holiday integration
+    is_holiday    = models.BooleanField(default=False, db_index=True)
+    holiday_name  = models.CharField(max_length=200, blank=True, null=True)
+
+    created_at    = models.DateTimeField(auto_now_add=True)
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('employee_code', 'date')
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['employee_code', 'month', 'year']),
+            models.Index(fields=['employee', 'month', 'year']),
+            models.Index(fields=['month', 'year', 'date']),
+            models.Index(fields=['date', 'employee_name']),
+        ]
+
+    def __str__(self):
+        return f"{self.employee_name} — {self.date} — {self.status}"
+
+    @property
+    def working_hours(self):
+        if self.duration:
+            total_seconds = int(self.duration.total_seconds())
+            h, rem = divmod(total_seconds, 3600)
+            m = rem // 60
+            return f"{h:02d}:{m:02d}"
+        return "00:00"
+
+    @property
+    def late_by_display(self):
+        if self.late_by:
+            total_seconds = int(self.late_by.total_seconds())
+            h, rem = divmod(total_seconds, 3600)
+            m = rem // 60
+            return f"{h:02d}:{m:02d}"
+        return "00:00"
+
+    @property
+    def early_by_display(self):
+        if self.early_by:
+            total_seconds = int(self.early_by.total_seconds())
+            h, rem = divmod(total_seconds, 3600)
+            m = rem // 60
+            return f"{h:02d}:{m:02d}"
+        return "00:00"
+
+
+class AttendanceSummary(models.Model):
+    """Monthly summary per employee — computed from EmployeeAttendance records."""
+    employee_code  = models.CharField(max_length=50, db_index=True)
+    employee_name  = models.CharField(max_length=200)
+    employee       = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='attendance_summaries', null=True, blank=True
+    )
+    month          = models.IntegerField(db_index=True)
+    year           = models.IntegerField(db_index=True)
+    upload         = models.ForeignKey(
+        AttendanceUpload, on_delete=models.CASCADE, related_name='summaries', null=True, blank=True
+    )
+
+    total_present       = models.IntegerField(default=0)
+    total_absent        = models.IntegerField(default=0)
+    total_leave         = models.IntegerField(default=0)
+    total_weekly_off    = models.IntegerField(default=0)
+    total_holidays      = models.IntegerField(default=0)   # govt/company holidays in the month
+    total_working_days  = models.IntegerField(default=0)   # scheduled working days (excl. weekends + holidays)
+    total_duration_mins = models.IntegerField(default=0)   # total minutes worked
+    total_late_mins     = models.IntegerField(default=0)
+    total_early_mins    = models.IntegerField(default=0)
+    total_overtime_mins = models.IntegerField(default=0)
+    missed_out_count    = models.IntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('employee_code', 'month', 'year')
+        ordering = ['-year', '-month']
+        indexes = [
+            models.Index(fields=['month', 'year', 'employee_name']),
+            models.Index(fields=['employee', 'month', 'year']),
+        ]
+
+    def __str__(self):
+        return f"{self.employee_name} — {self.month}/{self.year}"
+
+    @property
+    def attendance_percentage(self):
+        if self.total_working_days > 0:
+            return round((self.total_present / self.total_working_days) * 100, 1)
+        return 0.0
+
+    @property
+    def avg_working_hours(self):
+        if self.total_present > 0:
+            avg_mins = self.total_duration_mins // self.total_present
+            h, m = divmod(avg_mins, 60)
+            return f"{h:02d}:{m:02d}"
+        return "00:00"

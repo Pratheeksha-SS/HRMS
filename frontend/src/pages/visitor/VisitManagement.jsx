@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { extractListData } from '../../utils/extractListData';
 
@@ -35,8 +35,8 @@ const VisitManagement = ({ user }) => {
     try {
       const token = localStorage.getItem('access_token');
       const url = filterStatus !== 'all' 
-        ? `http://localhost:8000/api/visits/?status=${filterStatus}`
-        : 'http://localhost:8000/api/visits/';
+        ? `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visits/?status=${filterStatus}`
+        : `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/`;
       const response = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -52,7 +52,7 @@ const VisitManagement = ({ user }) => {
   const fetchVisitors = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/visitors/', {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setVisitors(extractListData(response.data));
@@ -65,7 +65,7 @@ const VisitManagement = ({ user }) => {
   const fetchEmployees = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/employees/', {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/employees/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setEmployees(extractListData(response.data));
@@ -86,7 +86,7 @@ const VisitManagement = ({ user }) => {
     
     try {
       const token = localStorage.getItem('access_token');
-      await axios.post('http://localhost:8000/api/visits/', formData, {
+      await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visits/`, formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       alert('Visit scheduled successfully!');
@@ -104,7 +104,7 @@ const VisitManagement = ({ user }) => {
   const handleCheckIn = async (visitId) => {
     try {
       const token = localStorage.getItem('access_token');
-      await axios.post(`http://localhost:8000/api/visits/${visitId}/check-in/`, {}, {
+      await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visits/${visitId}/check-in/`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       alert('Visitor checked in successfully!');
@@ -118,7 +118,7 @@ const VisitManagement = ({ user }) => {
   const handleCheckOut = async (visitId) => {
     try {
       const token = localStorage.getItem('access_token');
-      await axios.post(`http://localhost:8000/api/visits/${visitId}/check-out/`, {}, {
+      await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visits/${visitId}/check-out/`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       alert('Visitor checked out successfully!');

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { extractListData } from '../../utils/extractListData';
@@ -67,7 +67,7 @@ const AdminVisitor = ({ user }) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await axios.get('http://localhost:8000/api/visitors/', {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const visitorList = extractListData(response.data);
@@ -172,7 +172,7 @@ const AdminVisitor = ({ user }) => {
       const fd = new FormData();
       Object.keys(formData).forEach(k => { if (formData[k]) fd.append(k, formData[k]); });
       if (selectedImage) fd.append('photo', selectedImage);
-      await axios.post('http://localhost:8000/api/visitors/', fd, {
+      await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/`, fd, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
       });
       showToast('Visitor created successfully! 🎉', 'success');
@@ -222,7 +222,7 @@ const AdminVisitor = ({ user }) => {
       const fd = new FormData();
       Object.keys(formData).forEach(k => { if (formData[k]) fd.append(k, formData[k]); });
       if (selectedImage) fd.append('photo', selectedImage);
-      await axios.put(`http://localhost:8000/api/visitors/${editingVisitor.id}/`, fd, {
+      await axios.put(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/${editingVisitor.id}/`, fd, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
       });
       showToast('Visitor updated successfully!', 'success');
@@ -241,7 +241,7 @@ const AdminVisitor = ({ user }) => {
     if (!window.confirm('Are you sure you want to delete this visitor?')) return;
     try {
       const token = localStorage.getItem('access_token');
-      await axios.delete(`http://localhost:8000/api/visitors/${id}/`, {
+      await axios.delete(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/visitors/${id}/`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       showToast('Visitor deleted successfully.', 'success');
@@ -270,7 +270,6 @@ const AdminVisitor = ({ user }) => {
   // ─── Helpers ──────────────────────────────────────────────────────────────
   const VISITOR_CONFIG = {
     GUEST:     { bg: '#FFF7ED', text: '#EA580C', border: '#FED7AA', icon: '👤', label: 'Guest',     gradient: 'linear-gradient(135deg,#F97316,#EA580C)', shadow: 'rgba(249,115,22,0.25)' },
-    VENDOR:    { bg: '#F0FDF4', text: '#15803D', border: '#BBF7D0', icon: '🏢', label: 'Vendor',    gradient: 'linear-gradient(135deg,#16A34A,#15803D)', shadow: 'rgba(22,163,74,0.25)' },
     INTERN:    { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE', icon: '🎓', label: 'Intern',    gradient: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', shadow: 'rgba(59,130,246,0.25)' },
     CANDIDATE: { bg: '#F5F3FF', text: '#6D28D9', border: '#DDD6FE', icon: '💼', label: 'Candidate', gradient: 'linear-gradient(135deg,#8B5CF6,#6D28D9)', shadow: 'rgba(139,92,246,0.25)' },
   };
@@ -290,7 +289,6 @@ const AdminVisitor = ({ user }) => {
   const stats = {
     total:     visitors.length,
     guests:    visitors.filter(v => v.visitor_type === 'GUEST').length,
-    vendors:   visitors.filter(v => v.visitor_type === 'VENDOR').length,
     interns:   visitors.filter(v => v.visitor_type === 'INTERN').length,
     candidates:visitors.filter(v => v.visitor_type === 'CANDIDATE').length,
   };
@@ -351,7 +349,6 @@ const AdminVisitor = ({ user }) => {
           <label style={labelStyle}>Visitor Type</label>
           <select name="visitor_type" value={formData.visitor_type} onChange={handleInputChange} required style={selectStyle}>
             <option value="GUEST">Guest</option>
-            <option value="VENDOR">Vendor</option>
             <option value="INTERN">Intern</option>
             <option value="CANDIDATE">Interview Candidate</option>
           </select>
@@ -385,7 +382,7 @@ const AdminVisitor = ({ user }) => {
           <input type="tel" name="phone_number" value={formData.phone_number} onChange={handleInputChange} required style={inputStyle} placeholder="10-digit number" />
         </div>
 
-        {(visitor_type === 'GUEST' || visitor_type === 'VENDOR') && (
+        {(visitor_type === 'GUEST') && (
           <>
             <div style={{ marginBottom: '18px' }}>
               <label style={labelStyle}>Date of Visit *</label>
@@ -541,7 +538,7 @@ const AdminVisitor = ({ user }) => {
             </div>
 
             {/* Visit Details */}
-            {(v.visitor_type === 'GUEST' || v.visitor_type === 'VENDOR') && (
+            {(v.visitor_type === 'GUEST') && (
               <div style={{ marginBottom: '16px', padding: '18px', backgroundColor: '#FAFAFA', borderRadius: '12px', border: '1.5px solid #F1F5F9' }}>
                 <div style={{ fontSize: '12px', fontWeight: '700', color: '#F97316', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '14px' }}>📅 Visit Details</div>
                 <InfoRow label="Visit Date" value={formatDate(v.date_of_visiting)} />
@@ -709,7 +706,7 @@ const AdminVisitor = ({ user }) => {
             </h1>
           </div>
           <p style={{ fontSize: '14px', color: '#64748B', margin: 0, paddingLeft: '52px' }}>
-            Manage guests, vendors, interns, and interview candidates
+            Manage guests, interns, and interview candidates
           </p>
         </div>
 
@@ -750,7 +747,6 @@ const AdminVisitor = ({ user }) => {
         {[
           { label: 'Total Visitors', value: stats.total,      sub: 'All Types',  gradient: 'linear-gradient(135deg,#F97316,#EA580C)', shadow: 'rgba(249,115,22,0.25)' },
           { label: 'Guests',         value: stats.guests,     sub: 'Walk-in Guests',  gradient: 'linear-gradient(135deg,#FB923C,#F97316)', shadow: 'rgba(249,115,22,0.2)' },
-          { label: 'Vendors',        value: stats.vendors,    sub: 'Service & Delivery', gradient: 'linear-gradient(135deg,#16A34A,#15803D)', shadow: 'rgba(22,163,74,0.25)' },
           { label: 'Interns',        value: stats.interns,    sub: 'College Interns', gradient: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', shadow: 'rgba(59,130,246,0.25)' },
           { label: 'Candidates',     value: stats.candidates, sub: 'Interview Visits', gradient: 'linear-gradient(135deg,#8B5CF6,#6D28D9)', shadow: 'rgba(139,92,246,0.25)' },
         ].map(card => (
@@ -790,7 +786,6 @@ const AdminVisitor = ({ user }) => {
           {[
             { key: 'all',       label: 'All',        count: stats.total },
             { key: 'GUEST',     label: '👤 Guests',  count: stats.guests },
-            { key: 'VENDOR',    label: '🏢 Vendors', count: stats.vendors },
             { key: 'INTERN',    label: '🎓 Interns', count: stats.interns },
             { key: 'CANDIDATE', label: '💼 Candidates', count: stats.candidates },
           ].map(f => (

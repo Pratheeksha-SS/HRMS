@@ -1,12 +1,13 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axios from 'axios';
 import ErrorBoundary from './components/ErrorBoundary';
 import ChatbotWidget from "./components/ChatbotWidget";
+import { API_URL } from './utils/axiosConfig';
 
-// Setup axios
-axios.defaults.baseURL = "http://localhost:8000/api";
+// Setup axios default base URL from environment variable
+axios.defaults.baseURL = API_URL;
 
 // Lazy load components
 const Login = lazy(() => import('./components/Login'));
@@ -38,10 +39,21 @@ const DashboardGateway = () => {
 
   if (!token) return <Navigate to="/login" replace />;
   if (userRole === 'ADMIN') return <Navigate to="/admin" replace />;
-  if (userRole === 'MANAGER') return <Navigate to="/employee" replace />;
+  if (userRole === 'MANAGER') return <Navigate to="/manager" replace />;
   if (userRole === 'EMPLOYEE') return <Navigate to="/employee" replace />;
 
   return <Navigate to="/login" replace />;
+};
+
+const ChatbotMount = () => {
+  const { pathname } = useLocation();
+  const adminPaths = ['/admin', '/employees', '/departments', '/leave-details'];
+  const isAdminPage = adminPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+  const isEmployeePage = pathname === '/employee' || pathname.startsWith('/employee/');
+
+  if (!isAdminPage && !isEmployeePage) return null;
+
+  return <ChatbotWidget />;
 };
 
 // ✅ Protected Route — supports multiple allowed roles
@@ -63,7 +75,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (allowedRoles && !allowedRoles.includes(userRole)) {
     // Redirect to the correct dashboard
     if (userRole === 'ADMIN')    return <Navigate to="/admin"    replace />;
-    if (userRole === 'MANAGER')  return <Navigate to="/employee" replace />;
+    if (userRole === 'MANAGER')  return <Navigate to="/manager" replace />;
     if (userRole === 'EMPLOYEE') return <Navigate to="/employee" replace />;
     return <Navigate to="/login" replace />;
   }
@@ -219,7 +231,7 @@ function App() {
             </Routes>
           </Suspense>
         </ErrorBoundary>
-        <ChatbotWidget />
+        <ChatbotMount />
       </BrowserRouter>
     </QueryClientProvider>
   );
