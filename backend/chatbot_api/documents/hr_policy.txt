@@ -1,0 +1,12 @@
+# HR Leave Policy
+
+1. All employees are entitled to 15 Paid Leaves, 12 Sick Leaves, and 10 Casual Leaves per year.
+2. Sick leaves can be accumulated up to 30 days. Casual leaves cannot be accumulated.
+3. Maternity leave is 6 months. Paternity leave is 2 weeks.
+4. If an employee is absent for 3 consecutive days without notice, it is considered absconding.
+5. All leave requests must be approved by the reporting manager at least 1 week in advance, except for sick leaves.
+
+# Work Hours
+1. Core working hours are from 10:00 AM to 4:00 PM.
+2. Employees are expected to work 8 hours a day, 40 hours a week.
+3. Lunch break is 1 hour between 1:00 PM and 2:00 PM.
